@@ -1,4 +1,7 @@
-# Firmware for the LEDTransit Maps
+<div>
+<img src="assets/images/logo.svg" alt="LEDTransit Logo" height="32" align="right"/>
+<h1>Firmware for the LEDTransit Maps</h1>
+</div>
 
 This repository contains the firmware running on the LEDTransit Maps, a series of LED-based public transport maps designed and manufactured by [LEDTransit](https://ledtransit.com/).
 
