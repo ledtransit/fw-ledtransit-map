@@ -1,5 +1,5 @@
 <div>
-<img src="assets/images/logo.svg" alt="LEDTransit Logo" height="32" align="right"/>
+<img src="assets/images/logo-white.svg" alt="LEDTransit Logo" height="32" align="right"/>
 <h1>Firmware for the LEDTransit Maps</h1>
 </div>
 
