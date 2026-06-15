@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="shortcut icon" href="favicon.ico" />
+    <title>{{pageTitle}}</title>
+  </head>
+
+  <body>
+    <main>
+      <div class="bg"></div>
+      <div class="frame">
+        <div class="frame-inner">
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div
+                class="progress-fill"
+                style="transform: translateX(calc(-50% + 0%))"
+              ></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">{{setupYourDevice}}</div>
+              <div class="card-description">{{followSteps}}</div>
+            </div>
+            <div class="card-content">
+              <p>{{youAreConnectedToBoard}}</p>
+              <p>{{selectHomeWifiFromList}}</p>
+              <div class="wifi-container">
+                <div id="notification" class="notification">
+                  <p id="notification-body" class="notification-body">
+                    {{scanningForWifiNetworks}} <span class="dotdotdot"></span>
+                  </p>
+                  <button
+                    class="notification-button hidden"
+                    id="notification-close-button"
+                  ></button>
+                </div>
+                <div id="wifi-list" class="wifi-list">
+                  <!-- WiFi networks will be populated here -->
+                </div>
+                <button
+                  id="wifi-manual-button"
+                  class="card-button link wifi-manual-button hidden"
+                >
+                  {{enterCredentialsManually}}
+                </button>
+              </div>
+            </div>
+            <div class="card-footer">
+              <button class="card-button" disabled id="refresh-button">
+                {{refreshList}}
+              </button>
+              <button class="card-button" id="identify-button">
+                {{identifyDevice}}
+              </button>
+            </div>
+            <div id="wifi-modal" class="wifi-modal hidden" data-ssid="">
+              <form
+                id="wifi-modal-form"
+                class="wifi-modal-content"
+                method="post"
+                action="#"
+              >
+                <h3 class="wifi-modal-title">{{connectToWifiNetwork}}</h3>
+                <div>
+                  {{enterPasswordFor}}
+                  <span id="wifi-modal-ssid" class="wifi-modal-ssid"></span>
+                </div>
+                <input
+                  type="text"
+                  id="wifi-ssid"
+                  name="wifi-ssid"
+                  placeholder="{{enterWifiName}}"
+                  minlength="1"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  class="hidden"
+                />
+                <div class="wifi-password-input">
+                  <input
+                    type="password"
+                    id="wifi-password"
+                    name="wifi-password"
+                    placeholder="{{enterWifiPassword}}"
+                    required
+                    minlength="8"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                  />
+                  <button
+                    id="wifi-password-toggle"
+                    class="password-toggle-button"
+                    aria-label="{{togglePasswordVisibility}}"
+                  >
+                    <div class="eye-icon"></div>
+                  </button>
+                </div>
+                <button
+                  id="wifi-modal-submit"
+                  class="card-button primary"
+                  type="submit"
+                >
+                  {{connect}}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script>
+      let wifiNetworks = [];
+
+      async function fetchWithTimeout(resource, options = {}) {
+        const { timeout = 8000 } = options;
+
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        const response = await fetch(resource, {
+          ...options,
+          signal: controller.signal,
+        });
+        clearTimeout(id);
+        return response;
+      }
+
+      function scanWifiNetworks() {
+        const wifiList = document.getElementById("wifi-list");
+        const notification = document.getElementById("notification");
+        const notificationBody = document.getElementById("notification-body");
+        const refreshButton = document.getElementById("refresh-button");
+        const manualEntryButton = document.getElementById("wifi-manual-button");
+        const wifiSsidInput = document.getElementById("wifi-ssid");
+
+        if (wifiNetworks.length === 0) {
+          refreshButton.disabled = true;
+          notificationBody.innerHTML =
+            '{{scanningForWifiNetworks}} <span class="dotdotdot"></span>';
+          notification.classList.remove("hidden", "info", "success", "error");
+          notification.classList.add("info");
+        }
+
+        const response = fetchWithTimeout("/api/scan-wifi", {
+          method: "POST",
+          timeout: 5000,
+        })
+          .then((response) => response.json())
+          .then((json) => {
+            // Format: [{ ssid: <string>, rssi: <number>, open: <0|1> }, ...]
+            wifiNetworks.push(...json);
+            wifiNetworks = wifiNetworks.filter(
+              (network, index, self) =>
+                index === self.findIndex((n) => n.ssid === network.ssid), // Keep first occurrence
+            );
+
+            if (wifiNetworks.length === 0) {
+              notificationBody.textContent = "{{noWifiNetworksFound}}";
+              notification.classList.remove(
+                "hidden",
+                "info",
+                "success",
+                "error",
+              );
+              notification.classList.add("error");
+              return;
+            }
+
+            notificationBody.textContent = "";
+            notification.classList.add("hidden");
+            wifiList.innerHTML = "";
+            refreshButton.disabled = false;
+            manualEntryButton.classList.remove("hidden");
+
+            wifiNetworks
+              .sort((a, b) => b.rssi - a.rssi)
+              .forEach((network) => {
+                const networkItem = document.createElement("div");
+                let signalStrengthClass = "strong";
+                if (network.rssi < -70) {
+                  signalStrengthClass = "weak";
+                } else if (network.rssi < -50) {
+                  signalStrengthClass = "medium";
+                }
+                networkItem.className = "wifi-network";
+                if (network.open === 1) {
+                  networkItem.classList.add("disabled");
+                }
+                networkItem.innerHTML = `<span class="wifi-ssid">${network.ssid}</span><div class="wifi-icons"><span class="wifi-network-connect">{{connect}}</span><div class="wifi-icon ${signalStrengthClass}"></div>${network.open !== 1 ? '<div class="wifi-lock lock-icon"></div>' : ""}</div>`;
+
+                // Populate and show modal
+                networkItem.onclick = () => {
+                  if (network.open === 1) {
+                    console.error(
+                      "Cannot connect to open network:",
+                      network.ssid,
+                    );
+                    return;
+                  }
+                  const wifiModal = document.getElementById("wifi-modal");
+                  const wifiModalSsid =
+                    document.getElementById("wifi-modal-ssid");
+                  wifiModalSsid.textContent = network.ssid;
+                  wifiModal.setAttribute("data-ssid", network.ssid);
+                  wifiModal.classList.remove("hidden");
+                  const wifiPasswordInput =
+                    document.getElementById("wifi-password");
+                  wifiPasswordInput.value = "";
+                  wifiPasswordInput.focus();
+                  wifiSsidInput.classList.add("hidden");
+                };
+
+                wifiList.appendChild(networkItem);
+              });
+          })
+          .catch((error) => {
+            console.error("Error scanning WiFi networks:", error);
+            notificationBody.textContent = "{{errorScanningWifi}}";
+            notification.classList.remove("hidden", "info", "success", "error");
+            notification.classList.add("error");
+            refreshButton.disabled = false;
+          });
+      }
+
+      function submitWifiCredentials(tok, redirectUrl) {
+        const wifiModal = document.getElementById("wifi-modal");
+        const ssid = wifiModal.getAttribute("data-ssid");
+        const passwordInput = document.getElementById("wifi-password");
+        const password = passwordInput.value;
+        const notification = document.getElementById("notification");
+        const notificationBody = document.getElementById("notification-body");
+        const notificationButton = document.getElementById(
+          "notification-close-button",
+        );
+        const wifiList = document.getElementById("wifi-list");
+        const wifiModalSubmit = document.getElementById("wifi-modal-submit");
+        const refreshButton = document.getElementById("refresh-button");
+        const identifyButton = document.getElementById("identify-button");
+
+        refreshButton.disabled = true;
+        identifyButton.disabled = true;
+        wifiModalSubmit.disabled = true;
+        wifiModalSubmit.innerHTML =
+          '{{connecting}} <span class="dotdotdot"></span>';
+        wifiList.classList.add("disabled");
+
+        const forwardUrl = redirectUrl
+          ? `${redirectUrl}?tok=${tok}`
+          : `https://ledtransit.com/en/setup-wifi-complete?tok=${tok}`;
+
+        // Keep trying to connect to internet in case of automatic switchover
+        let maxNumOnlineChecks = 100;
+        let onlineCheckInterval = setInterval(() => {
+          if (maxNumOnlineChecks-- <= 0) {
+            clearInterval(onlineCheckInterval);
+            return;
+          }
+          fetchWithTimeout("https://google.com/generate_204", {
+            mode: "no-cors",
+            cache: "no-store",
+            timeout: 3000,
+          })
+            .then((response) => {
+              clearInterval(onlineCheckInterval);
+              window.location.href = `${forwardUrl}`;
+            })
+            .catch((error) => {});
+        }, 3000);
+
+        fetchWithTimeout(`/api/connect-wifi?tok=${tok}`, {
+          // Send credentials to the server
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ssid, password }),
+          timeout: 8000,
+        })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to submit WiFi credentials");
+            }
+            notificationBody.textContent = "{{wifiConnectedSuccessfully}}";
+            notificationButton.classList.remove("hidden");
+            notificationButton.innerHTML = "{{continue}}";
+            notificationButton.onclick = () => {
+              window.location.href = `${forwardUrl}`;
+            };
+            notification.classList.remove("hidden", "info", "success", "error");
+            notification.classList.add("success");
+          })
+          .catch((error) => {
+            if (error.name === "AbortError") {
+              notificationBody.textContent = "{{wifiConnectedSuccessfully}}";
+              notificationButton.classList.remove("hidden");
+              notificationButton.innerHTML = "{{continue}}";
+              notificationButton.onclick = () => {
+                window.location.href = `${forwardUrl}`;
+              };
+              notification.classList.remove(
+                "hidden",
+                "info",
+                "success",
+                "error",
+              );
+              notification.classList.add("success");
+              return;
+            }
+            console.error("Error:", error);
+            notificationBody.textContent = "{{errorConnectingToWifi}}";
+            notification.classList.remove("hidden", "info", "success", "error");
+            notification.classList.add("error");
+            refreshButton.disabled = false;
+            identifyButton.disabled = false;
+            wifiList.classList.remove("disabled");
+          })
+          .finally(() => {
+            // Close modal
+            wifiModal.classList.add("hidden");
+            wifiModalSubmit.disabled = false;
+            wifiModalSubmit.innerHTML = "Connect";
+          });
+      }
+
+      function setProgressBar(currentStep, numSteps) {
+        const progressFill = document.querySelector(".progress-fill");
+        const progressPercent = (currentStep / numSteps) * 100;
+        progressFill.style.transform = `translateX(calc(-100% + ${progressPercent}%))`;
+      }
+
+      function identifyDevice() {
+        const identifyButton = document.getElementById("identify-button");
+        const notification = document.getElementById("notification");
+        const notificationBody = document.getElementById("notification-body");
+
+        identifyButton.disabled = true;
+
+        fetchWithTimeout("/api/identify", {
+          method: "POST",
+        })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to trigger device identification");
+            }
+            notificationBody.textContent = "{{deviceIdentificationTriggered}}";
+            notification.classList.remove("hidden", "info", "success", "error");
+            notification.classList.add("success");
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            notificationBody.textContent = "{{errorIdentifyingDevice}}";
+            notification.classList.remove("hidden", "info", "success", "error");
+            notification.classList.add("error");
+          })
+          .finally(() => {
+            identifyButton.disabled = false;
+          });
+      }
+
+      function openManualWifiEntry() {
+        const wifiModal = document.getElementById("wifi-modal");
+        const wifiModalSsid = document.getElementById("wifi-modal-ssid");
+        const wifiPasswordInput = document.getElementById("wifi-password");
+        const wifiSsidInput = document.getElementById("wifi-ssid");
+
+        wifiModalSsid.textContent = "";
+        wifiModal.setAttribute("data-ssid", "");
+        wifiModal.classList.remove("hidden");
+        wifiPasswordInput.value = "";
+        wifiSsidInput.value = "";
+        wifiSsidInput.classList.remove("hidden");
+        wifiSsidInput.focus();
+      }
+
+      window.onload = () => {
+        const wifiModal = document.getElementById("wifi-modal");
+        const wifiForm = document.getElementById("wifi-modal-form");
+        const wifiModalSubmit = document.getElementById("wifi-modal-submit");
+        const wifiPasswordInput = document.getElementById("wifi-password");
+        const wifiSsidInput = document.getElementById("wifi-ssid");
+        const wifiPasswordToggle = document.getElementById(
+          "wifi-password-toggle",
+        );
+        const refreshButton = document.getElementById("refresh-button");
+        const manualEntryButton = document.getElementById("wifi-manual-button");
+        const identifyButton = document.getElementById("identify-button");
+        const notification = document.getElementById("notification");
+        const notificationBody = document.getElementById("notification-body");
+
+        const tok =
+          new URLSearchParams(window.location.search).get("tok") || "";
+        const redirectUrl =
+          new URLSearchParams(window.location.search).get("redirect") || "";
+        const colorScheme =
+          new URLSearchParams(window.location.search).get("colorScheme") ||
+          "light";
+
+        document.documentElement.classList.add(
+          colorScheme === "dark" ? "dark" : "light",
+        );
+
+        if (!tok || tok.length === 0) {
+          // Check token set
+          notificationBody.textContent = "{{missingToken}}";
+          notification.classList.remove("hidden", "info", "success", "error");
+          notification.classList.add("error");
+          return;
+        }
+
+        // Click outside modal closes it
+        wifiModal.onclick = (e) => {
+          e.preventDefault();
+          if (e.target === wifiModal) {
+            wifiModal.classList.add("hidden");
+          }
+        };
+
+        wifiForm.onsubmit = (e) => {
+          e.preventDefault();
+          submitWifiCredentials(tok, redirectUrl);
+        };
+
+        // Toggle password visibility
+        wifiPasswordToggle.onclick = (e) => {
+          e.preventDefault();
+          if (wifiPasswordInput.type === "password") {
+            wifiPasswordInput.type = "text";
+            wifiPasswordToggle.classList.add("active");
+          } else {
+            wifiPasswordInput.type = "password";
+            wifiPasswordToggle.classList.remove("active");
+          }
+          wifiPasswordInput.focus();
+        };
+
+        wifiPasswordInput.onkeydown = (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            wifiForm.requestSubmit();
+          }
+        };
+
+        wifiSsidInput.onchange = (e) => {
+          const ssid = e.target.value;
+          const wifiModal = document.getElementById("wifi-modal");
+          wifiModal.setAttribute("data-ssid", ssid);
+        };
+
+        wifiModalSubmit.onclick = (e) => {
+          e.preventDefault();
+          submitWifiCredentials(tok, redirectUrl);
+        };
+
+        refreshButton.onclick = (e) => {
+          e.preventDefault();
+          scanWifiNetworks();
+        };
+
+        identifyButton.onclick = (e) => {
+          e.preventDefault();
+          identifyDevice();
+        };
+
+        manualEntryButton.onclick = (e) => {
+          e.preventDefault();
+          openManualWifiEntry();
+        };
+
+        // Set progress bar
+        setProgressBar(4, 6);
+
+        // Scan for WiFi networks 3 times
+        scanWifiNetworks();
+        setTimeout(() => {
+          scanWifiNetworks();
+        }, 1000);
+        setTimeout(() => {
+          scanWifiNetworks();
+        }, 2000);
+      };
+    </script>
+  </body>
+</html>

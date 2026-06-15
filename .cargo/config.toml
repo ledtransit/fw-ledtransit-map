@@ -1,0 +1,18 @@
+[target.riscv32imc-unknown-none-elf]
+runner = "probe-rs run --chip=esp32c3 --preverify --always-print-stacktrace --no-location --catch-hardfault --idf-partition-table=partitions.csv --idf-bootloader=assets/boot_image/bootloader.bin"
+rustflags = [
+  "-C", "force-frame-pointers",
+  "-C", "link-arg=-Tlinkall.x",
+  "-C", "link-arg=-Tdefmt.x",
+]
+
+[env]
+ESP_HAL_CONFIG_PLACE_RMT_DRIVER_IN_RAM="true"
+DEFMT_LOG="error"
+SSL_ENABLED="true"
+
+[unstable]
+build-std = ["alloc", "core"]
+
+[alias]
+xtask = "run --manifest-path ./xtask/Cargo.toml --"

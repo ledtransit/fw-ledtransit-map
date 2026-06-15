@@ -1,0 +1,558 @@
+:root {
+  --primary: #2b7fff;
+  --background: #ffffff;
+  --secondary: #f5f5f5;
+  --border: #e5e5e5;
+  --foreground: #0a0a0a;
+  --muted-foreground: #737373;
+  --input: #0000;
+  --button: #fff;
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-background: oklch(0.92 0.05 21.79);
+}
+
+.dark {
+  --background: #0a0a0a;
+  --secondary: #262626;
+  --border: #ffffff1a;
+  --foreground: #fafafa;
+  --muted-foreground: #c0c0c0;
+  --input: #ffffff0b;
+  --button: #ffffff0b;
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-background: oklch(0.33 0.13 26.09);
+}
+
+* {
+  box-sizing: border-box;
+  border: 0 solid;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-weight: 200;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: sans-serif;
+  overflow: hidden;
+}
+
+p {
+  font-weight: 200;
+}
+
+main {
+  width: 100%;
+  height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: scroll;
+}
+
+.bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  background-image: url("background.webp");
+  background-size: cover;
+  background-position: center;
+  opacity: 0.3;
+  filter: blur(12px);
+}
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  overflow: hidden;
+  position: fixed;
+  height: 100%;
+}
+
+.frame-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: min(100dvh, 800px);
+  padding: 16px;
+  position: relative;
+  max-width: 48rem;
+}
+
+.card {
+  width: 100%;
+  background-color: var(--secondary);
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  gap: 24px;
+  padding-block: 24px;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+.progress-container {
+  position: relative;
+  height: 5.95px;
+  width: 100%;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.progress-bar {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 14px;
+  background-color: color-mix(in oklab, var(--primary) 20%, transparent);
+  top: 0;
+  border-radius: 14px 14px 0 0;
+  overflow: hidden;
+}
+
+.progress-fill {
+  width: 100%;
+  height: 100%;
+  background-color: var(--primary);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-header {
+  padding-top: 8px;
+  padding-inline: 24px;
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-rows: min-content;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.card-title {
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+
+.card-description {
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  font-size: 13.5px;
+  font-weight: 200;
+  letter-spacing: 0.035em;
+}
+
+.card-content {
+  flex: 1;
+  padding-inline: 24px;
+  overflow: scroll;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: 24px;
+}
+
+.card-button {
+  border-color: var(--border);
+  padding-inline: 12px;
+  outline-style: none;
+  background-color: var(--button);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  padding-block: 8px;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  gap: 2px;
+  height: 36px;
+  color: inherit;
+  letter-spacing: 0.05em;
+  font-size: 14px;
+  font-weight: 200;
+  user-select: none;
+  box-shadow: 0 1px 2px 0 #0000000d;
+}
+
+.card-button.link {
+  background-color: transparent;
+  border-color: transparent;
+  padding: 0;
+  height: auto;
+  text-decoration: underline;
+  box-shadow: none;
+}
+
+.card-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.spacer {
+  height: 10px;
+}
+
+.wifi-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.notification {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background-color: color-mix(
+    in oklab,
+    var(--secondary) 95%,
+    var(--foreground) 5%
+  );
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  justify-content: space-between;
+}
+
+.notification::before {
+  content: "ⓘ";
+  display: inline-block;
+  margin-right: 8px;
+  font-weight: 900;
+}
+
+.notification.error {
+  border-color: var(--destructive);
+  background-color: var(--destructive-background);
+}
+
+.notification.success {
+  border-color: color-mix(in oklab, var(--primary) 70%, var(--border) 30%);
+  background-color: color-mix(
+    in oklab,
+    var(--primary) 30%,
+    var(--secondary) 70%
+  );
+  color: var(--foreground);
+}
+
+.notification-body {
+  flex: 1;
+}
+
+.wifi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.wifi-list.disabled {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.wifi-network {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background-color: color-mix(
+    in oklab,
+    var(--secondary) 95%,
+    var(--foreground) 5%
+  );
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  gap: 12px;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wifi-network.disabled {
+  opacity: 0.5;
+}
+
+.wifi-network:hover:not(.disabled),
+button:hover,
+input:focus {
+  filter: brightness(1.15);
+}
+
+.wifi-network-connect {
+  padding: 4px 8px;
+  opacity: 0;
+  color: var(--muted-foreground);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wifi-network:hover:not(.disabled) .wifi-network-connect {
+  opacity: 1;
+}
+
+.wifi-ssid {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.wifi-icons {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.wifi-icon {
+  --n: 3;
+  --c1: #178feb;
+  --c2: #178feb;
+  --c3: #178feb;
+
+  height: 28px;
+  aspect-ratio: 1;
+  margin-bottom: -12px;
+  border-radius: 50%;
+
+  --s: calc(100% / (2 * var(--n) - 1));
+
+  background: repeating-radial-gradient(
+    50% 50%,
+    #0000 0,
+    var(--c1) 1px calc(var(--s) - 1px),
+    #0000 var(--s) calc(2 * var(--s)),
+    var(--c2) calc(2 * var(--s) + 1px) calc(3 * var(--s) - 1px),
+    #0000 calc(3 * var(--s)) calc(4 * var(--s)),
+    var(--c3) calc(4 * var(--s) + 1px) calc(5 * var(--s) - 1px),
+    #0000 calc(5 * var(--s))
+  );
+
+  mask:
+    conic-gradient(#000 0 0) no-repeat 50% / var(--s) var(--s),
+    conic-gradient(
+      from -45deg at 50% calc(50% + var(--s) / 2),
+      #000 90deg,
+      #0000 0
+    );
+}
+
+.wifi-icon.strong {
+  --c1: #178feb;
+  --c2: #178feb;
+  --c3: #178feb;
+}
+
+.wifi-icon.medium {
+  --c1: #178feb;
+  --c2: #178feb;
+  --c3: #3f3f3f;
+}
+
+.wifi-icon.weak {
+  --c1: #178feb;
+  --c2: #3f3f3f;
+  --c3: #3f3f3f;
+}
+
+.wifi-icon.none {
+  --c1: #3f3f3f;
+  --c2: #3f3f3f;
+  --c3: #3f3f3f;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.wifi-lock {
+  position: absolute !important;
+  bottom: -4px;
+  right: 0px;
+}
+
+.lock-icon {
+  background: #909090;
+  border-radius: 2px;
+  width: 10px;
+  height: 8px;
+  position: relative;
+}
+
+.lock-icon:before {
+  content: "";
+  display: block;
+  position: absolute;
+  border: 2px solid #909090;
+  top: -5px;
+  left: 1px;
+  width: 4px;
+  height: 6px;
+  border-radius: 16px 16px 0 0;
+}
+
+.eye-icon {
+  width: 13px;
+  height: 13px;
+  padding: 2px;
+  border: solid 1px var(--foreground);
+  border-radius: 75% 15%;
+  position: relative;
+  transform: rotate(45deg);
+}
+
+.eye-icon:before {
+  content: "";
+  display: block;
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border: solid 1px var(--foreground);
+  border-radius: 50%;
+  left: 3px;
+  top: 3px;
+}
+
+:not(.active) > .eye-icon:after {
+  content: "";
+  display: block;
+  position: absolute;
+  width: 1px;
+  height: 200%;
+  background-color: var(--foreground);
+  top: -50%;
+  left: 50%;
+}
+
+.wifi-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #00000080;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 10;
+}
+
+.wifi-modal-content {
+  background-color: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 400px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wifi-modal-ssid {
+  color: color-mix(in oklab, var(--primary) 80%, var(--foreground) 20%);
+  font-weight: 600;
+}
+
+.wifi-password-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wifi-password-input {
+  display: flex;
+  gap: 8px;
+}
+
+input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background-color: var(--input);
+  color: var(--foreground);
+  font-size: 14px;
+  outline: none;
+}
+
+input::placeholder {
+  color: oklch(67.968% 0.00008 271.152);
+}
+
+button {
+  cursor: pointer;
+  background: var(--button);
+  border: 1px solid var(--border);
+  padding: 10px 16px;
+  border-radius: 8px;
+  color: oklch(0.985 0 0);
+  user-select: none;
+  color: var(--foreground);
+}
+
+.card-button.primary {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.dotdotdot {
+  display: inline-block;
+  width: 10px;
+  text-align: left;
+}
+
+.dotdotdot::after {
+  content: "...";
+  animation: dots 1s steps(3, end) infinite;
+}
+
+@keyframes dots {
+  0%,
+  20% {
+    content: "";
+  }
+  40% {
+    content: ".";
+  }
+  60% {
+    content: "..";
+  }
+  80%,
+  100% {
+    content: "...";
+  }
+}
+
+@media (max-width: 600px) {
+  .wifi-network-connect {
+    display: none;
+  }
+}

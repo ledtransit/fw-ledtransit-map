@@ -1,0 +1,281 @@
+syntax = "proto2";
+package ledtransit_client;
+
+message ClientMessage {
+    required uint32 version = 1;
+    oneof payload {
+        ServerInfo server_info = 2; // Server -> Client [N]
+        DeviceInfo device_info = 3; // Client -> Server [N]
+        DeviceStatus status = 4; // Server <-> Client [RW]
+        DeviceConfig config = 5; // Server <-> Client [RW]
+        DeviceUpdate device_update = 6; // Server -> Client [N]
+        DeviceTelemetry telemetry = 7; // Client -> Server [N]
+        DeviceCommand command = 8; // Server -> Client [W]
+        DeviceErrors errors = 9; // Client -> Server [N]
+        TransitData transit_data = 10; // Server -> Client [N]
+        Echo echo = 11; // Server <-> Client [N]
+    }
+}
+
+// [on-join/1h] World information from server (clock sync)
+message ServerInfo {
+    required uint32 unix_timestamp = 1;
+    required uint32 local_time_of_day_seconds = 2; // Since last local midnight, requires config.timezone_name
+    required uint32 local_weekday_number = 3; // 0 = Sunday, requires config.timezone_name
+    required uint32 local_sunrise_time_of_day_seconds = 4; // Since last local midnight, requires config.
+    required uint32 local_sunset_time_of_day_seconds = 5; // Since last local midnight
+}
+
+// [on-join] Device information from client (firmware sync)
+message DeviceInfo {
+    required uint32 firmware_version_major = 1;
+    required uint32 firmware_version_minor = 2;
+    required uint32 firmware_version_patch = 3;
+    required bool is_beta_firmware = 4;
+    required bool is_rolled_back_firmware = 5;
+    required bool is_factory_firmware = 6;
+}
+
+// [on-join/on-input] Device status valid for session, cached on server, reset on reboot
+message DeviceStatus {
+    required bool is_light_on = 1;
+    required bool is_updating_firmware = 2;
+    required bool has_update_failed = 3;
+    required string wifi_ssid = 4;
+}
+
+// [on-join/on-input] Persistent device configuration, stored on device and in cloud (user preferences)
+message DeviceConfig {
+    required uint32 brightness_percent = 1;
+    required uint32 current_limit_ma = 2;
+    required ColorMode color_mode = 3;
+    required uint32 primary_color_rgb8 = 4;
+    required uint32 secondary_color_rgb8 = 5;
+    required uint32 tertiary_color_rgb8 = 6;
+    required int32 color_temperature_shift = 7;
+    required DisruptionMode disruption_mode = 8;
+    required uint32 disruption_color_rgb8 = 9;
+    required uint32 disruption_brightness_percent = 10;
+    required uint32 animation_speed_percent = 11;
+    required RenderMode render_mode = 12;
+    required VehicleFilter vehicle_filter = 13;
+    required uint32 vehicle_distance_threshold_meters = 14;
+    required TimerSettings timer_settings = 15;
+    required bool auto_firmware_update_enabled = 16;
+    required uint32 min_delay_minutes = 17;
+    required uint32 max_delay_minutes = 18;
+    required uint32 min_speed_kmph = 19;
+    required uint32 max_speed_kmph = 20;
+    repeated LineConfig line_configs = 21;
+    optional string timezone_iana = 22;
+    required RealtimeFilter realtime_filter = 23;
+    required DisruptionInterval disruption_interval = 24;
+    required SunlightAutoBrightness sunlight_auto_brightness = 25;
+    optional Coordinates location_coord = 26;
+    optional string location_name = 27;
+}
+
+// [on-join/1h?] New firmware update available notification from server
+message DeviceUpdate {
+    required uint32 firmware_version_major = 1;
+    required uint32 firmware_version_minor = 2;
+    required uint32 firmware_version_patch = 3;
+    required string image_url = 4;
+    required string changelog_url = 5;
+    required uint32 size_bytes = 6;
+    required bytes sha256_hash = 7;
+    required bytes p256_signature = 8;
+}
+
+// [on-ping/10s] Read-only momentary device telemetry from client (monitoring, analytics)
+message DeviceTelemetry {
+    required uint32 uptime_seconds = 1;
+    required int32 wifi_rssi_dbm = 2;
+    required uint32 current_estimate_milliamps = 3;
+    required uint32 update_progress_percent = 4;
+    required uint32 update_speed_bytes_per_second = 5;
+    required uint32 num_vehicles_available = 6;
+    required uint32 num_vehicles_visible = 7;
+    required uint32 num_pixels_on = 8;
+    required uint32 last_transit_data_received_unix_timestamp = 9;
+    required uint32 last_transit_data_sourced_unix_timestamp = 10;
+    required uint32 last_transit_data_simulated_until_unix_timestamp = 11;
+    required uint32 transit_data_downlink_bytes_per_second = 12;
+    required uint32 num_disruptions_available = 13;
+    required uint32 num_disruptions_visible = 14;
+    repeated AvailableVehicleLine available_vehicle_lines = 15;
+    required uint32 heap_size_bytes = 16;
+    required uint32 heap_max_used_bytes = 17;
+    required uint32 heap_current_used_bytes = 18;
+    required string feed_source = 19;
+    required uint32 num_vehicles_visible_real_time = 20;
+    repeated AvailableDisruptedLine available_disrupted_lines = 21;
+    required uint32 brightness_percent = 22;
+}
+
+// [on-input] Commands from server to client (control, actions)
+enum DeviceCommand {
+    DEVICE_COMMAND_REBOOT = 0;
+    DEVICE_COMMAND_IDENTIFY = 1;
+    DEVICE_COMMAND_FACTORY_RESET = 2;
+    DEVICE_COMMAND_REPROVISION = 3;
+    DEVICE_COMMAND_RESET_CONFIG_DEFAULTS = 4;
+    DEVICE_COMMAND_START_FIRMWARE_UPDATE = 5;
+    DEVICE_COMMAND_TEST_LEDS = 6;
+    DEVICE_COMMAND_RECONNECT = 7;
+}
+
+// [on-error] Errors from client to server (error logs, panics)
+message DeviceErrors {
+    repeated DeviceError errors = 1;
+}
+
+// [on-join/30s] Live processed transit data from feed server, packed fields for efficient in-memory layout
+message TransitData {
+    required uint32 sourced_at_unix_timestamp = 1;
+    required uint32 simulated_until_unix_timestamp = 2;
+    required string feed_source = 3;
+    repeated Line lines = 4;
+    repeated Stop stops = 5;
+    repeated VehicleMovement vehicle_movements = 6;
+    repeated Disruption disruptions = 7;
+}
+
+// [on-app] End-to-end reachability test and latency measurement passed from control center to device and back
+message Echo {
+    required uint32 id = 1;
+    required uint64 timestamp_milliseconds = 2;
+}
+
+// --- TYPES ---
+
+message AvailableVehicleLine {
+    required string line_name = 1;
+    required uint32 vehicle_count = 2;
+}
+
+message AvailableDisruptedLine {
+    required string line_name = 1;
+    required uint32 stop_count = 2;
+    required Coordinates from_coord = 3;
+    optional Coordinates to_coord = 4;
+    optional Coordinates direction_hint_to_coord = 5;
+    optional Coordinates direction_hint_from_coord = 6;
+    required bool bidirectional = 7;
+    required bool entire_line = 8;
+}
+
+enum DeviceErrorType {
+    DEVICE_ERROR_TYPE_PANIC = 0;
+    DEVICE_ERROR_TYPE_ERROR = 1;
+    DEVICE_ERROR_TYPE_WARNING = 2;
+}
+
+message DeviceError {
+    required DeviceErrorType type = 1;
+    required uint32 instant_milliseconds = 2;
+    required string file_name = 3;
+    required uint32 line_number = 4;
+    required uint32 column_number = 5;
+    required string message = 6;
+    required uint32 unix_timestamp = 7;
+}
+
+enum ColorMode {
+    COLOR_MODE_ORIGINAL = 0;
+    COLOR_MODE_MONOCHROME = 1;
+    COLOR_MODE_RANGE_SPACED_APART = 2;
+    COLOR_MODE_DELAY_HEATMAP = 3;
+    COLOR_MODE_SPEED_HEATMAP = 4;
+}
+
+enum DisruptionMode {
+    DISRUPTION_MODE_OFF = 0;
+    DISRUPTION_MODE_SOLID = 1;
+    DISRUPTION_MODE_PULSING = 2;
+    DISRUPTION_MODE_RIPPLE = 3;
+}
+
+enum DisruptionInterval {
+    DISRUPTION_INTERVAL_EVERY_2S = 0;
+    DISRUPTION_INTERVAL_EVERY_3S = 1;
+    DISRUPTION_INTERVAL_EVERY_5S = 2;
+    DISRUPTION_INTERVAL_EVERY_10S = 3;
+}
+
+enum RenderMode {
+    RENDER_MODE_SNAP_CLOSEST = 0;
+    RENDER_MODE_SNAP_CLOSEST_TRANSITION = 1;
+}
+
+enum VehicleFilter {
+    VEHICLE_FILTER_ALL = 0;
+    VEHICLE_FILTER_WITHIN_DISTANCE = 1;
+    VEHICLE_FILTER_STATIONARY_ONLY = 2;
+}
+
+enum RealtimeFilter {
+    REALTIME_FILTER_SCHEDULED_AND_REALTIME = 0;
+    REALTIME_FILTER_REALTIME_ONLY = 1;
+}
+
+message TimerSettings {
+    required bool enabled = 1;
+    required uint32 start_time_of_day_seconds = 2; // Since local midnight
+    required uint32 end_time_of_day_seconds = 3; // Since local midnight
+    required uint32 weekdays_bitmask = 4; // bit 0 = Sunday
+}
+
+message LineConfig {
+    required string line_name = 1;
+    required bool enabled = 2;
+    required bool has_override = 3;
+    required uint32 original_color_rgb8 = 4;
+    required uint32 override_color_rgb8 = 5;
+    required uint32 brightness_percent = 6;
+}
+
+message SunlightAutoBrightness {
+    required bool enabled = 1;
+    required uint32 night_brightness_percent = 2;
+    required uint32 day_brightness_percent = 3;
+}
+
+message Line {
+    required string name = 1;
+    required uint32 color_rgb8 = 2;
+}
+
+message Stop {
+    required int32 is_station_x_latitude_e7 = 1; // bool + i31
+    required int32 longitude_e7 = 2;
+}
+
+message Coordinates {
+    required int32 latitude_e7 = 1;
+    required int32 longitude_e7 = 2;
+}
+
+message VehicleMovement {
+    required uint32 line_id_x_start_offset_seconds = 1; // u16 + i16
+    repeated MovementSegment segments = 2;
+}
+
+message MovementSegment {
+    required uint32 from_stop_id_x_to_stop_id = 1; // u16 + u16
+    required uint32 move_seconds_x_wait_seconds = 2; // u16 + u16
+    required int32 delayed_seconds_x_average_speed_kmph = 3; // i16 + u16, delay i16::MAX -> no data
+    required uint32 canceled_x_via_total_move_seconds = 4; // bool + u31
+    repeated ViaStop via_stops = 5;
+}
+
+message ViaStop {
+    required uint32 stop_id_x_move_seconds = 1; // u16 + u16
+}
+
+message Disruption {
+    required uint32 line_id = 1;
+    required uint32 from_stop_id_x_to_stop_id = 2; // u16 + u16, to_stop_id u16::MAX -> only from stop affected
+    required uint32 direction_hint_from_stop_id_x_to_stop_id = 3; // u16 + u16, direction_hint_to_stop_id u16::MAX -> all directions at from_stop_id affected, same for from_stop_id
+    required uint32 bidirectional_x_entire_line_x_stop_count = 4; // bool + bool + u30
+}
