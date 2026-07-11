@@ -65,6 +65,8 @@ async fn draw_frame() {
         store.state.rendered_state.drawn_first_frame_at_instant_ms;
     let rendered_data_first_at_instant_ms =
         store.state.rendered_state.rendered_data_first_at_instant_ms;
+    let config_last_changed_at_instant_ms =
+        store.state.rendered_state.config_last_changed_at_instant_ms;
     let now_instant_ms = Instant::now().as_millis();
 
     // If never rendered any data before, fade out LEDs first
@@ -82,6 +84,9 @@ async fn draw_frame() {
     let config = app_settings::persist::get_settings().await.config;
     let animation_speed_unit = config.animation_speed_percent.min(200) as f32 / 200.0;
     let renderer_frame_time_ms = 1000 / RENDERER_FPS as u64;
+    let config_changed_this_render_frame = now_instant_ms
+        .saturating_sub(config_last_changed_at_instant_ms as u64)
+        < renderer_frame_time_ms * 2;
     let render_mode =
         RenderMode::try_from(config.render_mode).unwrap_or(RenderMode::SnapClosestTransition);
     let transition_duration_ms = match render_mode {
@@ -211,7 +216,15 @@ async fn draw_frame() {
     // Draw vehicles
     for (vehicle_idx, vehicle) in store.state.renderer_out.vehicles.iter().enumerate() {
         // Equally space out vehicle draw calls over renderer frame time
-        let vehicle_draw_delay_ms = (vehicle_idx as u64) * vehicle_draw_interval_ms;
+        let vehicle_updated_this_render_frame = now_instant_ms
+            .saturating_sub(vehicle.last_updated_instant_ms as u64)
+            < renderer_frame_time_ms * 2; // Could overlap previous frame
+        let vehicle_draw_delay_ms =
+            if config_changed_this_render_frame && vehicle_updated_this_render_frame {
+                0 // Draw immediately if config changed this frame and vehicle was updated recently
+            } else {
+                (vehicle_idx as u64) * vehicle_draw_interval_ms
+            };
         let start_instant_ms = vehicle.last_updated_instant_ms as u64 + vehicle_draw_delay_ms;
         let time_since_rendered_first_sec = (start_instant_ms
             .saturating_sub(rendered_data_first_at_instant_ms.unwrap_or(0) as u64)

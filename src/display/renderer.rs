@@ -4,7 +4,7 @@ use alloc::{vec, vec::Vec};
 use defmt::warn;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, Instant, Timer, with_timeout};
+use embassy_time::{Duration, Instant, with_timeout};
 use rgb::RGB8;
 use smart_leds::{
     colors::BLACK,
@@ -38,6 +38,7 @@ pub struct RendererState {
     pub rendered_data_first_at_instant_ms: Option<u32>,
     pub rendered_any_first_at_instant_ms: Option<u32>,
     pub drawn_first_frame_at_instant_ms: Option<u32>,
+    pub config_last_changed_at_instant_ms: u32,
     pub disruptions_render_pending: bool,
 }
 
