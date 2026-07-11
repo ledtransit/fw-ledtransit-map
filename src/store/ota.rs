@@ -6,6 +6,7 @@ use core::{ffi::CStr, net::SocketAddr, ops::DerefMut};
 use defmt::{debug, error, info};
 use edge_http::{Method, io::client};
 use edge_nal_embassy::{Tcp, TcpBuffers};
+use edge_nal_tls::TlsConnector;
 use embassy_executor::Spawner;
 use embassy_net::{Stack, dns};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -22,7 +23,7 @@ use esp_hal::{
     sha::{Sha, Sha256},
 };
 use esp_storage::FlashStorage;
-use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsConnector};
+use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls};
 use nb::block;
 use nourl::{Url, UrlScheme};
 use p256::{ecdsa::signature::Verifier, pkcs8::DecodePublicKey};

@@ -5,7 +5,7 @@ use esp_hal::{
     ram,
     rmt::{Channel, PulseCode, Tx},
 };
-use rgb::{ComponentSlice, Grb, RGB8};
+use rgb::{Grb, RGB8};
 
 pub struct LedDriver<'ch> {
     channel: Option<Channel<'ch, Blocking, Tx>>,
@@ -61,7 +61,7 @@ impl<'ch> LedDriver<'ch> {
         let mut rmt_buffer = [PulseCode::end_marker(); 3 * 8 + 1];
         let mut rmt_iter = rmt_buffer.iter_mut();
         let grb: Grb<u8> = color.into();
-        let bytes = grb.as_slice();
+        let bytes = [grb.g, grb.r, grb.b];
         for byte in bytes {
             for pos in [128, 64, 32, 16, 8, 4, 2, 1] {
                 *rmt_iter.next().unwrap() = if byte & pos != 0 {

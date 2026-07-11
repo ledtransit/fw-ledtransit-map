@@ -5,6 +5,7 @@ use condtype::{CondType, condval};
 use defmt::{debug, error, info, warn};
 use edge_http::io::client;
 use edge_nal_embassy::{Tcp, TcpBuffers, TcpError};
+use edge_nal_tls::TlsConnector;
 use edge_ws::{FrameHeader, FrameType};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either3, select3};
@@ -16,7 +17,7 @@ use embassy_time::{Duration, Instant, TimeoutError, Timer, with_timeout};
 use embedded_io_async::Write;
 use envparse::parse_env;
 use esp_hal::rng::Rng;
-use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsConnector};
+use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls};
 use prost::Message;
 use smoltcp::wire::DnsQueryType;
 
@@ -244,7 +245,9 @@ async fn run(
     let (mut socket, buf) = conn.release();
 
     #[cfg(ssl_enabled)]
-    let (mut rx, mut tx) = socket.split().await.map_err(WsClientError::SessionError)?;
+    let session = socket.session_mut();
+    #[cfg(ssl_enabled)]
+    let (mut rx, mut tx) = session.split().await.map_err(WsClientError::SessionError)?;
     #[cfg(not(ssl_enabled))]
     let (mut rx, mut tx) = {
         use edge_nal::TcpSplit;
@@ -376,8 +379,8 @@ async fn run(
         }
     };
 
-    // Wait for quit signal
-    let quit_fut = async { WS_CLIENT_QUIT_SIGNAL.wait().await };
+    // Wait for quit signal by application
+    let quit_fut = WS_CLIENT_QUIT_SIGNAL.wait();
 
     // Receive and transmit until connection closed or error or quit signal
     let res = match select3(rx_fut, tx_fut, quit_fut).await {
@@ -400,7 +403,7 @@ async fn run(
     // Close socket with timeout
     with_timeout(Duration::from_secs(1), async {
         #[cfg(ssl_enabled)]
-        socket.close().await.ok();
+        session.close().await.ok();
         #[cfg(not(ssl_enabled))]
         {
             use edge_nal::{Close, TcpShutdown};
