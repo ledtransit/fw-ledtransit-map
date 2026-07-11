@@ -278,9 +278,13 @@ async fn run(
                     // force the renderer to drop the previously allocated object first
                     let proto_has_transit_data =
                         payload_buf.len() >= 3 && payload_buf[0..3] == PROTO_TRANSIT_DATA_MAGIC;
+                    let session_settings = app_settings::session::get_settings().await;
+                    if session_settings.updating_firmware {
+                        // During firmware update, don't update transit data to avoid memory pressure and potential OOM
+                        continue;
+                    }
                     if proto_has_transit_data {
                         transit_data::clear().await;
-                        let session_settings = app_settings::session::get_settings().await;
                         if session_settings.test_mode_active {
                             // During test mode, don't render transit data updates
                             continue;

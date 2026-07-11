@@ -65,8 +65,6 @@ async fn draw_frame() {
         store.state.rendered_state.drawn_first_frame_at_instant_ms;
     let rendered_data_first_at_instant_ms =
         store.state.rendered_state.rendered_data_first_at_instant_ms;
-    let rendered_any_first_at_instant_ms =
-        store.state.rendered_state.rendered_any_first_at_instant_ms;
     let now_instant_ms = Instant::now().as_millis();
 
     // If never rendered any data before, fade out LEDs first
@@ -90,10 +88,6 @@ async fn draw_frame() {
         RenderMode::SnapClosest => 0,
         RenderMode::SnapClosestTransition => lerp(50.0, 550.0, 1.0 - animation_speed_unit) as u64,
     };
-    let time_since_data_rendered_ms =
-        now_instant_ms.saturating_sub(rendered_data_first_at_instant_ms.unwrap_or(0) as u64);
-    let time_since_ever_rendered_ms = now_instant_ms
-        .saturating_sub(rendered_any_first_at_instant_ms.unwrap_or(now_instant_ms as u32) as u64);
 
     // Clear pixel buffer
     let mut pixel_buf = leds::get_mut_pixel_buffer().await;
@@ -118,19 +112,9 @@ async fn draw_frame() {
         let disruption_draw_delay_ms = (disruption_idx as u64) * disruption_draw_interval_ms;
         let start_instant_ms = disruption.last_updated_instant_ms as u64 + disruption_draw_delay_ms;
 
-        let is_within_first_data_frame =
-            time_since_data_rendered_ms < disruption_draw_delay_ms + transition_duration_ms;
-        let is_within_first_ever_frame =
-            time_since_ever_rendered_ms < disruption_draw_delay_ms + transition_duration_ms;
-
         let mut rgb = RGB8 { r: 0, g: 0, b: 0 };
 
-        // Within first rendered frame, immediately draw current color to avoid malformed transitions
-        if is_within_first_data_frame && !is_within_first_ever_frame {
-            if disruption.cur_rgb != BLACK {
-                rgb = disruption.cur_rgb;
-            }
-        } else if now_instant_ms < start_instant_ms {
+        if now_instant_ms < start_instant_ms {
             // Transition has not started yet, draw previous color
             if disruption.prev_rgb != BLACK {
                 rgb = disruption.prev_rgb;
@@ -233,25 +217,6 @@ async fn draw_frame() {
             .saturating_sub(rendered_data_first_at_instant_ms.unwrap_or(0) as u64)
             / 1000)
             .min(u8::MAX as u64) as u8;
-
-        let is_within_first_data_frame =
-            time_since_data_rendered_ms < vehicle_draw_delay_ms + transition_duration_ms;
-        let is_within_first_ever_frame =
-            time_since_ever_rendered_ms < vehicle_draw_delay_ms + transition_duration_ms;
-
-        // Within first rendered frame, immediately draw current pixel to avoid malformed transitions
-        if is_within_first_data_frame && !is_within_first_ever_frame {
-            if let Some(pixel_cur) = vehicle.cur.to_option() {
-                write_pixel_z(
-                    &mut pixel_buf,
-                    pixel_cur.idx as usize,
-                    pixel_cur.rgb,
-                    &mut z_buffer,
-                    time_since_rendered_first_sec,
-                );
-            }
-            continue;
-        }
 
         // Check transition has not started yet, draw previous pixel
         if now_instant_ms < start_instant_ms {

@@ -3,7 +3,8 @@ use core::iter;
 use alloc::{vec, vec::Vec};
 use defmt::warn;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use rgb::RGB8;
 use smart_leds::{
     colors::BLACK,
@@ -16,8 +17,8 @@ use crate::{
     net::ws_client::{
         self,
         client_proto::{
-            AvailableDisruptedLine, AvailableVehicleLine, ColorMode, Coordinates, RealtimeFilter,
-            VehicleFilter, ViaStop,
+            AvailableDisruptedLine, AvailableVehicleLine, ColorMode, Coordinates, DisruptionFilter,
+            RealtimeFilter, VehicleFilter, ViaStop,
         },
     },
     store::{
@@ -28,7 +29,9 @@ use crate::{
     util::{NonMax, lerp, rgb8_brightness, rgb8_from_packed},
 };
 
-pub const RENDERER_FPS: u32 = 1;
+pub const RENDERER_FPS: u32 = 1; // No need to render more than once per second, since vehicle departure times and delays have a granularity of 1 second
+
+pub static RENDER_NOW_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 #[derive(Clone)]
 pub struct RendererState {
@@ -49,6 +52,7 @@ pub struct RenderedVehicle {
     pub prev: PixelState,
     pub cur: PixelState,
     pub last_updated_instant_ms: u32,
+    pub trip_id: NonMax<u16>, // Stable unique ID
 }
 
 impl Default for RenderedVehicle {
@@ -57,6 +61,18 @@ impl Default for RenderedVehicle {
             prev: PixelState::NONE,
             cur: PixelState::NONE,
             last_updated_instant_ms: 0,
+            trip_id: NonMax::NONE,
+        }
+    }
+}
+
+impl RenderedVehicle {
+    pub fn new(trip_id: u16) -> Self {
+        RenderedVehicle {
+            prev: PixelState::NONE,
+            cur: PixelState::NONE,
+            last_updated_instant_ms: 0,
+            trip_id: NonMax::new_unchecked(trip_id),
         }
     }
 }
@@ -67,6 +83,7 @@ pub struct RenderedDisruption {
     pub prev_rgb: RGB8,
     pub cur_rgb: RGB8,
     pub last_updated_instant_ms: u32,
+    pub disruption_id: NonMax<u16>, // Stable unique ID
 }
 
 impl Default for RenderedDisruption {
@@ -76,6 +93,19 @@ impl Default for RenderedDisruption {
             prev_rgb: BLACK,
             cur_rgb: BLACK,
             last_updated_instant_ms: 0,
+            disruption_id: NonMax::NONE,
+        }
+    }
+}
+
+impl RenderedDisruption {
+    pub fn new(disruption_id: u16) -> Self {
+        RenderedDisruption {
+            pixels: vec![],
+            prev_rgb: BLACK,
+            cur_rgb: BLACK,
+            last_updated_instant_ms: 0,
+            disruption_id: NonMax::new_unchecked(disruption_id),
         }
     }
 }
@@ -92,7 +122,7 @@ pub struct PixelStateSome {
 }
 
 impl PixelState {
-    const NONE: Self = PixelState {
+    pub const NONE: Self = PixelState {
         rgb: BLACK,
         idx: NonMax::NONE,
     };
@@ -111,7 +141,8 @@ pub fn spawn(spawner: Spawner) {
 #[embassy_executor::task]
 async fn renderer_task() {
     loop {
-        let begin_frame_time = embassy_time::Instant::now();
+        RENDER_NOW_SIGNAL.reset();
+        let begin_frame_time = Instant::now();
         let setup_complete = app_settings::persist::get_settings()
             .await
             .access_token
@@ -130,11 +161,13 @@ async fn renderer_task() {
             }
         }
 
-        // Frame delay
-        let frame_duration = embassy_time::Instant::now() - begin_frame_time;
+        // Wait until next frame time, or until render_now() is called
+        let frame_duration = Instant::now() - begin_frame_time;
         let frame_delay = Duration::from_millis(1000 / RENDERER_FPS as u64);
         if frame_duration < frame_delay {
-            Timer::after(frame_delay - frame_duration).await;
+            with_timeout(frame_delay - frame_duration, RENDER_NOW_SIGNAL.wait())
+                .await
+                .ok();
         } else {
             warn!(
                 "Renderer: Frame processing time {}ms exceeded time budget {}ms",
@@ -150,6 +183,10 @@ async fn is_disruptions_render_pending() -> bool {
         Some(s) => s.state.rendered_state.disruptions_render_pending,
         None => false,
     };
+}
+
+pub fn render_now() {
+    RENDER_NOW_SIGNAL.signal(());
 }
 
 async fn render_vehicles() {
@@ -193,8 +230,17 @@ async fn render_vehicles() {
             acc + move_seconds + wait_seconds
         });
 
-        let line_id = vehicle.line_id_x_start_offset_seconds >> 16;
-        let start_offset_seconds = (vehicle.line_id_x_start_offset_seconds & 0xFFFF) as i16;
+        let line_id = vehicle.line_id_x_trip_id >> 16;
+        let start_offset_seconds = vehicle
+            .segments
+            .first()
+            .map(|seg| {
+                (((seg.canceled_x_start_offset_seconds_x_via_total_move_seconds >> 16) & 0x7FFF)
+                    as i16)
+                    << 1
+                    >> 1 // Sign extend i15 to i16
+            })
+            .unwrap_or(0);
 
         let movement_start_timestamp =
             (source_timestamp as i32 + start_offset_seconds as i32) as u32;
@@ -235,8 +281,10 @@ async fn render_vehicles() {
         let segment_to_stop_id = segment.from_stop_id_x_to_stop_id & 0xFFFF;
         let segment_move_seconds = segment.move_seconds_x_wait_seconds >> 16;
         let segment_wait_seconds = segment.move_seconds_x_wait_seconds & 0xFFFF;
-        let segment_total_via_move_secs = segment.canceled_x_via_total_move_seconds & 0x7FFFFFFF;
-        let _segment_is_canceled = (segment.canceled_x_via_total_move_seconds & 0x80000000) != 0;
+        let segment_total_via_move_secs =
+            segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0xFFFF;
+        let _segment_is_canceled =
+            (segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0x80000000) != 0;
 
         // Get segment from and to coordinates
         let from_coord = match stops.get(segment_from_stop_id as usize) {
@@ -622,7 +670,7 @@ async fn render_vehicles() {
             line_name: line.name.clone(),
             vehicle_count: vehicles
                 .iter()
-                .filter(|veh| (veh.line_id_x_start_offset_seconds >> 16) as usize == idx)
+                .filter(|veh| (veh.line_id_x_trip_id >> 16) as usize == idx)
                 .count() as u32,
         })
         .collect();
@@ -676,7 +724,7 @@ async fn render_disruptions() {
 
     // Render disruptions
     for (disruption_idx, disruption) in disruptions.iter().enumerate() {
-        let prev_disruption_rgb = store.state.renderer_out.disruptions[disruption_idx].cur_rgb;
+        let prev_disruption = store.state.renderer_out.disruptions[disruption_idx].clone();
         store.state.renderer_out.disruptions[disruption_idx].prev_rgb =
             store.state.renderer_out.disruptions[disruption_idx].cur_rgb;
         store.state.renderer_out.disruptions[disruption_idx].cur_rgb = BLACK;
@@ -685,14 +733,16 @@ async fn render_disruptions() {
 
         num_disruptions_available += 1;
 
+        let line_id = disruption.line_id_x_disruption_id >> 16;
+
         // Lookup line
-        let line = match lines.get(disruption.line_id as usize) {
+        let line = match lines.get(line_id as usize) {
             Some(l) => l,
             None => {
                 trace::err!(
                     "Disruption {} references invalid line ID {} (malformed)",
                     disruption_idx,
-                    disruption.line_id
+                    line_id
                 );
                 continue;
             }
@@ -709,7 +759,7 @@ async fn render_disruptions() {
                 trace::err!(
                     "Disruption {} line ID {} name '{}' has no line config",
                     disruption_idx,
-                    disruption.line_id,
+                    line_id,
                     line.name
                 );
                 continue;
@@ -880,17 +930,22 @@ async fn render_disruptions() {
                 }
             }
 
-            // Update rendered disruption state (alloc)
-            store.state.renderer_out.disruptions[disruption_idx].pixels = pixels;
-            if rgb_color != prev_disruption_rgb {
-                store.state.renderer_out.disruptions[disruption_idx].prev_rgb = prev_disruption_rgb;
+            // Check rendered disruption has changed (color or pixels)
+            if pixels != prev_disruption.pixels || rgb_color != prev_disruption.cur_rgb {
+                store.state.renderer_out.disruptions[disruption_idx].prev_rgb =
+                    prev_disruption.cur_rgb;
+                store.state.renderer_out.disruptions[disruption_idx].cur_rgb = rgb_color;
+                store.state.renderer_out.disruptions[disruption_idx].pixels = pixels;
+                store.state.renderer_out.disruptions[disruption_idx].last_updated_instant_ms =
+                    now_instant_ms;
+            } else {
+                // Restore previous state
+                store.state.renderer_out.disruptions[disruption_idx] = prev_disruption;
             }
-            store.state.renderer_out.disruptions[disruption_idx].cur_rgb = rgb_color;
-            store.state.renderer_out.disruptions[disruption_idx].last_updated_instant_ms =
-                now_instant_ms;
+
             num_disruptions_visible += 1;
         } else {
-            // 2) Directed disruption at one point: Find valid path between disruption stop and direction stop
+            // 2. Directed disruption at one point: Find valid path between disruption stop and direction stop
             let dir_hint_to_opt = NonMax::new_unchecked(direction_hint_to_stop_id).as_option();
             let dir_hint_from_opt = NonMax::new_unchecked(direction_hint_from_stop_id).as_option();
 
@@ -966,14 +1021,19 @@ async fn render_disruptions() {
             };
             let pixels = vec![pixel_cur];
 
-            // Update rendered disruption state (alloc)
-            store.state.renderer_out.disruptions[disruption_idx].pixels = pixels;
-            if rgb_color != prev_disruption_rgb {
-                store.state.renderer_out.disruptions[disruption_idx].prev_rgb = prev_disruption_rgb;
+            // Check rendered disruption has changed (color or pixels)
+            if pixels != prev_disruption.pixels || rgb_color != prev_disruption.cur_rgb {
+                store.state.renderer_out.disruptions[disruption_idx].prev_rgb =
+                    prev_disruption.cur_rgb;
+                store.state.renderer_out.disruptions[disruption_idx].cur_rgb = rgb_color;
+                store.state.renderer_out.disruptions[disruption_idx].pixels = pixels;
+                store.state.renderer_out.disruptions[disruption_idx].last_updated_instant_ms =
+                    now_instant_ms;
+            } else {
+                // Restore previous state
+                store.state.renderer_out.disruptions[disruption_idx] = prev_disruption;
             }
-            store.state.renderer_out.disruptions[disruption_idx].cur_rgb = rgb_color;
-            store.state.renderer_out.disruptions[disruption_idx].last_updated_instant_ms =
-                now_instant_ms;
+
             num_disruptions_visible += 1;
         }
     }

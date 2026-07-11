@@ -265,7 +265,7 @@ message Coordinates {
 }
 
 message VehicleMovement {
-    required uint32 line_id_x_start_offset_seconds = 1; // u16 + i16
+    required uint32 line_id_x_trip_id = 1; // u16 + u16
     repeated MovementSegment segments = 2;
 }
 
@@ -273,7 +273,7 @@ message MovementSegment {
     required uint32 from_stop_id_x_to_stop_id = 1; // u16 + u16
     required uint32 move_seconds_x_wait_seconds = 2; // u16 + u16
     required int32 delayed_seconds_x_average_speed_kmph = 3; // i16 + u16, delay i16::MAX -> no data
-    required uint32 canceled_x_via_total_move_seconds = 4; // bool + u31
+    required uint32 canceled_x_start_offset_seconds_x_via_total_move_seconds = 4; // bool + u15 + u16
     repeated ViaStop via_stops = 5;
 }
 
@@ -282,8 +282,8 @@ message ViaStop {
 }
 
 message Disruption {
-    required uint32 line_id = 1;
+    required uint32 line_id_x_disruption_id = 1; // u16 + u16
     required uint32 from_stop_id_x_to_stop_id = 2; // u16 + u16, to_stop_id u16::MAX -> only from stop affected
     required uint32 direction_hint_from_stop_id_x_to_stop_id = 3; // u16 + u16, direction_hint_to_stop_id u16::MAX -> all directions at from_stop_id affected, same for from_stop_id
-    required uint32 bidirectional_x_entire_line_x_stop_count = 4; // bool + bool + u30
+    required uint32 bidirectional_x_entire_line_x_affects_all_lines_x_stop_count = 4; // bool + bool + bool + u29
 }
