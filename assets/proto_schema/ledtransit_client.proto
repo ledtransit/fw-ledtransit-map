@@ -112,6 +112,7 @@ message DeviceTelemetry {
     required uint32 num_vehicles_visible_real_time = 20;
     repeated AvailableDisruptedLine available_disrupted_lines = 21;
     required uint32 brightness_percent = 22;
+    optional uint32 auto_update_scheduled_unix_timestamp = 23;
 }
 
 // [on-input] Commands from server to client (control, actions)
@@ -164,6 +165,7 @@ message AvailableDisruptedLine {
     optional Coordinates direction_hint_from_coord = 6;
     required bool bidirectional = 7;
     required bool entire_line = 8;
+    required bool affects_all_lines = 9;
 }
 
 enum DeviceErrorType {

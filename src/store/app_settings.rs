@@ -305,6 +305,7 @@ pub mod session {
         pub is_factory_firmware: bool,
         pub firmware_update_available: Option<DeviceUpdate>,
         pub auto_brightness_percent: Option<u8>, // Calculated brightness percent based on sun path automation
+        pub auto_update_scheduled_unix_timestamp: Option<u32>, // Unix timestamp of next scheduled auto firmware update
     }
 
     static SETTINGS: Mutex<CriticalSectionRawMutex, SessionSettings> =
@@ -327,6 +328,7 @@ pub mod session {
             is_factory_firmware: false,
             firmware_update_available: None,
             auto_brightness_percent: None,
+            auto_update_scheduled_unix_timestamp: None,
         });
 
     pub async fn get_settings() -> SessionSettings {
