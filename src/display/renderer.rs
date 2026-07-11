@@ -217,6 +217,19 @@ async fn render_vehicles() {
     let mut num_vehicles_visible: u32 = 0;
     let mut num_vehicles_visible_real_time: u32 = 0;
 
+    let vehicles_with_rt_data_percent = vehicles
+        .iter()
+        .filter(|veh| {
+            veh.segments.iter().any(|seg| {
+                let delayed_seconds =
+                    NonMax::new_unchecked((seg.delayed_seconds_x_average_speed_kmph >> 16) as i16);
+                delayed_seconds.is_some()
+            })
+        })
+        .count() as f32
+        / vehicles.len().max(1) as f32
+        * 100.0;
+
     // Render each vehicle
     for (vehicle_idx, vehicle) in vehicles.iter().enumerate() {
         // In case vehicle will not be rendered, turn off pixel
@@ -449,6 +462,8 @@ async fn render_vehicles() {
         // Check should render vehicles without real time data
         if config.realtime_filter == RealtimeFilter::RealtimeOnly as i32
             && delayed_seconds.is_none()
+            && vehicles_with_rt_data_percent > 50.0
+        // If too few vehicles have real-time data, render all vehicles even in RealtimeOnly mode to avoid empty display
         {
             continue;
         }
