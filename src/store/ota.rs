@@ -9,7 +9,7 @@ use edge_nal_embassy::{Tcp, TcpBuffers};
 use embassy_executor::Spawner;
 use embassy_net::{Stack, dns};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, TimeoutError, Timer, with_timeout};
+use embassy_time::{Duration, Instant, TimeoutError, Timer, with_timeout};
 use embedded_io_async::{Read, ReadExactError};
 use embedded_storage::{ReadStorage, Storage};
 use esp_bootloader_esp_idf::{
@@ -31,9 +31,9 @@ use smoltcp::wire::DnsQueryType;
 use crate::{
     config::CONFIG,
     display::leds::{self, LedStatus},
-    net::ws_client::{self, WsClientError, client_proto::DeviceUpdate},
+    net::ws_client::{self, WsClientError, client_proto::DeviceUpdate, send_telemetry},
     store::{SharedFlashStorage, app_settings},
-    trace,
+    time, trace,
 };
 
 const TCP_RX_SIZE: usize = 4 * 1024;
@@ -67,11 +67,13 @@ pub enum OtaError {
 }
 
 static OTA_SIGNAL: Signal<CriticalSectionRawMutex, OtaEvent> = Signal::new();
+static OTA_CANCEL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 enum OtaEvent {
     InitBootPartition,
     BootFromFactory,
     StartUpdate(DeviceUpdate),
+    ScheduleUpdate(DeviceUpdate, Duration),
 }
 
 pub fn spawn(
@@ -116,7 +118,10 @@ async fn run(
     sha: &mut Sha<'_>,
 ) -> Result<(), OtaError> {
     loop {
-        match OTA_SIGNAL.wait().await {
+        let event = OTA_SIGNAL.wait().await;
+        OTA_CANCEL.reset();
+
+        match event {
             OtaEvent::InitBootPartition => {
                 let result = with_ota_updater(flash_store, init_current_partition).await;
                 app_settings::session::update_settings(|set| {
@@ -137,6 +142,42 @@ async fn run(
                 ws_client::quit(Err(WsClientError::Reboot));
                 Timer::after(Duration::from_secs(2)).await;
                 esp_hal::system::software_reset();
+            }
+            OtaEvent::ScheduleUpdate(update, delay) => {
+                info!(
+                    "Scheduling OTA update to v{}.{}.{} in {} seconds",
+                    update.firmware_version_major,
+                    update.firmware_version_minor,
+                    update.firmware_version_patch,
+                    delay.as_secs()
+                );
+
+                // Store scheduled update timestamp and send telemetry
+                let now_unix = time::get_unix_timestamp_seconds().await;
+                app_settings::session::update_settings(|set| {
+                    set.auto_update_scheduled_unix_timestamp =
+                        Some(now_unix + delay.as_secs() as u32);
+                })
+                .await;
+                send_telemetry();
+
+                // Wait for scheduled delay or cancel signal
+                match with_timeout(delay, OTA_CANCEL.wait()).await {
+                    Err(TimeoutError) => {
+                        info!("OTA update scheduled delay elapsed, starting update");
+                    }
+                    Ok(_) => {
+                        info!("OTA update scheduled delay canceled, aborting update");
+                        app_settings::session::update_settings(|set| {
+                            set.auto_update_scheduled_unix_timestamp = None;
+                        })
+                        .await;
+                        send_telemetry();
+                        continue;
+                    }
+                }
+
+                OTA_SIGNAL.signal(OtaEvent::StartUpdate(update));
             }
             OtaEvent::StartUpdate(update) => {
                 // Check version must be different
@@ -463,7 +504,7 @@ async fn download_ota_update_to_flash(
 
     // Read response
     let total_length = content_length.unwrap();
-    let start_instant = embassy_time::Instant::now();
+    let start_instant = Instant::now();
     let mut total_bytes_read: usize = 0;
     let mut progress_percent: u8 = 0;
 
@@ -493,7 +534,7 @@ async fn download_ota_update_to_flash(
             .map_err(OtaError::FlashWriteError)?;
 
         total_bytes_read += read_size;
-        let elapsed_secs = (embassy_time::Instant::now() - start_instant).as_secs();
+        let elapsed_secs = (Instant::now() - start_instant).as_secs();
         let speed_bps = (total_bytes_read as f32 / elapsed_secs.max(1) as f32) as u32;
         let percent = ((total_bytes_read as f32 / total_length.max(1) as f32) * 100.0) as u8;
 
@@ -550,13 +591,31 @@ pub async fn start_firmware_update(update: &DeviceUpdate) {
         // OTA already in progress, ignore new request
         return;
     }
-    OTA_SIGNAL.signal(OtaEvent::StartUpdate(update.clone()));
+    signal(OtaEvent::StartUpdate(update.clone()));
+}
+
+pub async fn schedule_firmware_update(update: &DeviceUpdate, delay: Duration) {
+    let settings = app_settings::session::get_settings().await;
+    if settings.updating_firmware || settings.auto_update_scheduled_unix_timestamp.is_some() {
+        // OTA already in progress or already scheduled, ignore new request
+        return;
+    }
+    signal(OtaEvent::ScheduleUpdate(update.clone(), delay));
 }
 
 pub fn init_boot_partition() {
-    OTA_SIGNAL.signal(OtaEvent::InitBootPartition);
+    signal(OtaEvent::InitBootPartition);
 }
 
 pub fn boot_from_factory() {
-    OTA_SIGNAL.signal(OtaEvent::BootFromFactory);
+    signal(OtaEvent::BootFromFactory);
+}
+
+pub fn cancel() {
+    OTA_CANCEL.signal(());
+}
+
+fn signal(event: OtaEvent) {
+    cancel();
+    OTA_SIGNAL.signal(event);
 }

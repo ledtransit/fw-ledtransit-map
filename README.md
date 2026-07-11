@@ -7,7 +7,7 @@ This repository contains the firmware running on the LEDTransit Maps, a series o
 
 The maps are powered by ESP32-C3 (RISC-V) microcontrollers and feature a custom PCB with an on-board JTAG USB interface for programming and debugging, as well as an LED chain for displaying the position of public transport vehicles in real-time.
 
-The firmware is open-source under the GPL 3.0 license and can be built from source and installed on the device by following the instructions below.
+The firmware is written in Rust using the `esp-hal` and `embassy` no_std frameworks and can be built from source and installed on the device by following the instructions below.
 
 <div class="grid" markdown>
 

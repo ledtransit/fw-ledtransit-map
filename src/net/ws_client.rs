@@ -278,9 +278,13 @@ async fn run(
                     // force the renderer to drop the previously allocated object first
                     let proto_has_transit_data =
                         payload_buf.len() >= 3 && payload_buf[0..3] == PROTO_TRANSIT_DATA_MAGIC;
+                    let session_settings = app_settings::session::get_settings().await;
                     if proto_has_transit_data {
+                        if session_settings.updating_firmware {
+                            // During firmware update, don't update transit data to avoid memory pressure and potential OOM
+                            continue;
+                        }
                         transit_data::clear().await;
-                        let session_settings = app_settings::session::get_settings().await;
                         if session_settings.test_mode_active {
                             // During test mode, don't render transit data updates
                             continue;
@@ -451,6 +455,17 @@ async fn handle_proto_message(payload: Payload, payload_len: usize) -> Result<()
             leds::set_status_led_from_session().await;
         }
         Payload::Config(config) => {
+            // On auto-update setting disabled: Cancel scheduled update if any
+            if !config.auto_firmware_update_enabled
+                && app_settings::session::get_settings()
+                    .await
+                    .auto_update_scheduled_unix_timestamp
+                    .is_some()
+            {
+                info!("WS: Auto firmware update disabled, clearing scheduled update timestamp");
+                ota::cancel();
+            }
+
             // On config update: Update persisted config
             if app_settings::persist::update_settings_changed(move |set| {
                 set.config = config.clone();
@@ -568,8 +583,8 @@ async fn handle_proto_message(payload: Payload, payload_len: usize) -> Result<()
             );
             let settings = app_settings::persist::get_settings().await;
             if settings.config.auto_firmware_update_enabled {
-                info!("WS: Auto firmware update is enabled, starting update process");
-                ota::start_firmware_update(&update).await;
+                info!("WS: Auto firmware update is enabled, scheduling update in 5 minutes...");
+                ota::schedule_firmware_update(&update, Duration::from_secs(5 * 60)).await;
             }
             app_settings::session::update_settings(|set| {
                 set.firmware_update_available = Some(update);
@@ -690,6 +705,8 @@ async fn build_telemetry(
             num_vehicles_visible_real_time: transit_data_stats.num_vehicles_visible_real_time,
             available_disrupted_lines: transit_data_stats.available_disrupted_lines,
             brightness_percent: leds::get_current_brightness_percent().await as u32,
+            auto_update_scheduled_unix_timestamp: sessions_settings
+                .auto_update_scheduled_unix_timestamp,
         })),
     };
     Ok(telemetry_message.encode_to_vec())

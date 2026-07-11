@@ -12,7 +12,6 @@ use embedded_io_async::{Read, Write};
 use esp_radio::wifi::{
     AuthenticationMethod, Config, ap::AccessPointConfig, scan::ScanConfig, sta::StationConfig,
 };
-use nourl::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::{

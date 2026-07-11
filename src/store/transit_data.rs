@@ -3,10 +3,11 @@ use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     mutex::{Mutex, MutexGuard},
 };
+use embassy_time::Instant;
 
 use crate::{
     config::CONFIG,
-    display::renderer::{RendererOutput, RendererState},
+    display::renderer::{self, RenderedDisruption, RenderedVehicle, RendererOutput, RendererState},
     net::ws_client::{
         self,
         client_proto::{AvailableDisruptedLine, AvailableVehicleLine, LineConfig, TransitData},
@@ -40,6 +41,7 @@ impl Default for TransitDataState {
                 rendered_data_first_at_instant_ms: None,
                 rendered_any_first_at_instant_ms: None,
                 drawn_first_frame_at_instant_ms: None,
+                config_last_changed_at_instant_ms: 0,
                 disruptions_render_pending: false,
             },
             renderer_out: RendererOutput {
@@ -205,15 +207,55 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
     let num_vehicles = transit_data.vehicle_movements.len();
     let num_disruptions = transit_data.disruptions.len();
 
-    // Store transit data
     let mut store = TRANSIT_DATA_STORE.lock().await;
+
+    let prev_rendered_vehicles = store
+        .as_ref()
+        .map(|s| s.state.renderer_out.vehicles.clone())
+        .unwrap_or_default();
+    let mut rendered_vehicles: Vec<RenderedVehicle> = vec![Default::default(); num_vehicles];
+
+    // Populate previously rendered vehicles for matching trip ids
+    for (vehicle_idx, vehicle) in transit_data.vehicle_movements.iter().enumerate() {
+        let trip_id = (vehicle.line_id_x_trip_id & 0xFFFF) as u16;
+        if let Some(prev_vehicle) = prev_rendered_vehicles
+            .iter()
+            .find(|v| v.trip_id.as_option() == Some(trip_id))
+        {
+            rendered_vehicles[vehicle_idx] = prev_vehicle.clone();
+        } else {
+            rendered_vehicles[vehicle_idx] = RenderedVehicle::new(trip_id);
+        }
+    }
+
+    let prev_rendered_disruptions = store
+        .as_ref()
+        .map(|s| s.state.renderer_out.disruptions.clone())
+        .unwrap_or_default();
+    let mut rendered_disruptions: Vec<RenderedDisruption> =
+        vec![Default::default(); num_disruptions];
+
+    // Populate previously rendered disruptions for matching disruption ids
+    for (disruption_idx, disruption) in transit_data.disruptions.iter().enumerate() {
+        let disruption_id = (disruption.line_id_x_disruption_id & 0xFFFF) as u16;
+        if let Some(prev_disruption) = prev_rendered_disruptions
+            .iter()
+            .find(|d| d.disruption_id.as_option() == Some(disruption_id))
+        {
+            rendered_disruptions[disruption_idx] = prev_disruption.clone();
+        } else {
+            rendered_disruptions[disruption_idx] = RenderedDisruption::new(disruption_id);
+        }
+    }
+
+    // Store transit data
     *store = Some(TransitDataStore {
         data: transit_data,
         state: TransitDataState {
             stop_id_to_loc_id_map,
             renderer_out: RendererOutput {
-                vehicles: vec![Default::default(); num_vehicles],
-                disruptions: vec![Default::default(); num_disruptions],
+                vehicles: rendered_vehicles,
+                disruptions: rendered_disruptions,
             },
             rendered_state: RendererState {
                 rendered_data_first_at_instant_ms: None,
@@ -245,10 +287,6 @@ pub async fn clear() {
     let mut store = TRANSIT_DATA_STORE.lock().await;
     if let Some(store_ref) = store.as_mut() {
         store_ref.state.stop_id_to_loc_id_map = vec![];
-        store_ref.state.renderer_out = RendererOutput {
-            vehicles: vec![],
-            disruptions: vec![],
-        };
         store_ref
             .state
             .rendered_state
@@ -284,7 +322,12 @@ pub async fn on_config_updated() {
     if let Some(store_ref) = store.as_mut() {
         store_ref.stats.telemetry_pending = true;
         store_ref.state.rendered_state.disruptions_render_pending = true;
+        store_ref
+            .state
+            .rendered_state
+            .config_last_changed_at_instant_ms = Instant::now().as_millis() as u32;
     }
+    renderer::render_now();
 }
 
 fn lookup_nearest_pixel_location_id_to_coord(latitude_e7: i32, longitude_e7: i32) -> Option<u16> {

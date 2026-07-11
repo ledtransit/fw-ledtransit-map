@@ -12,7 +12,7 @@ use crate::{
     },
     net::ws_client::client_proto::{DisruptionInterval, DisruptionMode, RenderMode},
     store::{app_settings, transit_data},
-    util::{lerp, rgb8_brightness},
+    util::{lerp, rgb8_brightness, rgb8_max},
 };
 
 const PAINTER_FPS: u32 = 30;
@@ -65,8 +65,8 @@ async fn draw_frame() {
         store.state.rendered_state.drawn_first_frame_at_instant_ms;
     let rendered_data_first_at_instant_ms =
         store.state.rendered_state.rendered_data_first_at_instant_ms;
-    let rendered_any_first_at_instant_ms =
-        store.state.rendered_state.rendered_any_first_at_instant_ms;
+    let config_last_changed_at_instant_ms =
+        store.state.rendered_state.config_last_changed_at_instant_ms;
     let now_instant_ms = Instant::now().as_millis();
 
     // If never rendered any data before, fade out LEDs first
@@ -84,16 +84,15 @@ async fn draw_frame() {
     let config = app_settings::persist::get_settings().await.config;
     let animation_speed_unit = config.animation_speed_percent.min(200) as f32 / 200.0;
     let renderer_frame_time_ms = 1000 / RENDERER_FPS as u64;
+    let config_changed_this_render_frame = now_instant_ms
+        .saturating_sub(config_last_changed_at_instant_ms as u64)
+        < renderer_frame_time_ms * 2;
     let render_mode =
         RenderMode::try_from(config.render_mode).unwrap_or(RenderMode::SnapClosestTransition);
     let transition_duration_ms = match render_mode {
         RenderMode::SnapClosest => 0,
         RenderMode::SnapClosestTransition => lerp(50.0, 550.0, 1.0 - animation_speed_unit) as u64,
     };
-    let time_since_data_rendered_ms =
-        now_instant_ms.saturating_sub(rendered_data_first_at_instant_ms.unwrap_or(0) as u64);
-    let time_since_ever_rendered_ms = now_instant_ms
-        .saturating_sub(rendered_any_first_at_instant_ms.unwrap_or(now_instant_ms as u32) as u64);
 
     // Clear pixel buffer
     let mut pixel_buf = leds::get_mut_pixel_buffer().await;
@@ -118,19 +117,9 @@ async fn draw_frame() {
         let disruption_draw_delay_ms = (disruption_idx as u64) * disruption_draw_interval_ms;
         let start_instant_ms = disruption.last_updated_instant_ms as u64 + disruption_draw_delay_ms;
 
-        let is_within_first_data_frame =
-            time_since_data_rendered_ms < disruption_draw_delay_ms + transition_duration_ms;
-        let is_within_first_ever_frame =
-            time_since_ever_rendered_ms < disruption_draw_delay_ms + transition_duration_ms;
-
         let mut rgb = RGB8 { r: 0, g: 0, b: 0 };
 
-        // Within first rendered frame, immediately draw current color to avoid malformed transitions
-        if is_within_first_data_frame && !is_within_first_ever_frame {
-            if disruption.cur_rgb != BLACK {
-                rgb = disruption.cur_rgb;
-            }
-        } else if now_instant_ms < start_instant_ms {
+        if now_instant_ms < start_instant_ms {
             // Transition has not started yet, draw previous color
             if disruption.prev_rgb != BLACK {
                 rgb = disruption.prev_rgb;
@@ -206,7 +195,10 @@ async fn draw_frame() {
                         // Falling
                         (1.0 - ripple_phase_unit) * 2.0
                     };
-                    pixel_buf[*pixel as usize] = rgb8_brightness(rgb, brightness_unit);
+                    pixel_buf[*pixel as usize] = rgb8_max(
+                        pixel_buf[*pixel as usize],
+                        rgb8_brightness(rgb, brightness_unit),
+                    );
                 }
             }
             Err(_) => {}
@@ -224,31 +216,20 @@ async fn draw_frame() {
     // Draw vehicles
     for (vehicle_idx, vehicle) in store.state.renderer_out.vehicles.iter().enumerate() {
         // Equally space out vehicle draw calls over renderer frame time
-        let vehicle_draw_delay_ms = (vehicle_idx as u64) * vehicle_draw_interval_ms;
+        let vehicle_updated_this_render_frame = now_instant_ms
+            .saturating_sub(vehicle.last_updated_instant_ms as u64)
+            < renderer_frame_time_ms * 2; // Could overlap previous frame
+        let vehicle_draw_delay_ms =
+            if config_changed_this_render_frame && vehicle_updated_this_render_frame {
+                0 // Draw immediately if config changed this frame and vehicle was updated recently
+            } else {
+                (vehicle_idx as u64) * vehicle_draw_interval_ms
+            };
         let start_instant_ms = vehicle.last_updated_instant_ms as u64 + vehicle_draw_delay_ms;
         let time_since_rendered_first_sec = (start_instant_ms
             .saturating_sub(rendered_data_first_at_instant_ms.unwrap_or(0) as u64)
             / 1000)
             .min(u8::MAX as u64) as u8;
-
-        let is_within_first_data_frame =
-            time_since_data_rendered_ms < vehicle_draw_delay_ms + transition_duration_ms;
-        let is_within_first_ever_frame =
-            time_since_ever_rendered_ms < vehicle_draw_delay_ms + transition_duration_ms;
-
-        // Within first rendered frame, immediately draw current pixel to avoid malformed transitions
-        if is_within_first_data_frame && !is_within_first_ever_frame {
-            if let Some(pixel_cur) = vehicle.cur.to_option() {
-                write_pixel_z(
-                    &mut pixel_buf,
-                    pixel_cur.idx as usize,
-                    pixel_cur.rgb,
-                    &mut z_buffer,
-                    time_since_rendered_first_sec,
-                );
-            }
-            continue;
-        }
 
         // Check transition has not started yet, draw previous pixel
         if now_instant_ms < start_instant_ms {
