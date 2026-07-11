@@ -5,8 +5,9 @@
 use crate::{
     config::CONFIG,
     net::ws_client::client_proto::{
-        ColorMode, DeviceConfig, DeviceUpdate, DisruptionInterval, DisruptionMode, RealtimeFilter,
-        RenderMode, SunlightAutoBrightness, TimerSettings, VehicleFilter,
+        ColorMode, DeviceConfig, DeviceUpdate, DisruptionFilter, DisruptionInterval,
+        DisruptionMode, RealtimeFilter, RenderMode, SunlightAutoBrightness, TimerSettings,
+        VehicleFilter,
     },
     store::SharedFlashStorage,
     trace,
@@ -127,6 +128,7 @@ pub mod persist {
                 },
                 location_coord: None,
                 location_name: None,
+                disruption_filter: DisruptionFilter::Severe as i32,
             },
         }
     }

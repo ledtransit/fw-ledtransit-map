@@ -36,7 +36,7 @@ message DeviceInfo {
     required bool is_factory_firmware = 6;
 }
 
-// [on-join/on-input] Device status valid for session, cached on server, reset on reboot
+// [on-join/on-input] Device status valid for entire session, cached on server, reset on reboot
 message DeviceStatus {
     required bool is_light_on = 1;
     required bool is_updating_firmware = 2;
@@ -73,6 +73,7 @@ message DeviceConfig {
     required SunlightAutoBrightness sunlight_auto_brightness = 25;
     optional Coordinates location_coord = 26;
     optional string location_name = 27;
+    required DisruptionFilter disruption_filter = 28;
 }
 
 // [on-join/1h?] New firmware update available notification from server
@@ -194,6 +195,11 @@ enum DisruptionMode {
     DISRUPTION_MODE_SOLID = 1;
     DISRUPTION_MODE_PULSING = 2;
     DISRUPTION_MODE_RIPPLE = 3;
+}
+
+enum DisruptionFilter {
+    DISRUPTION_FILTER_ALL = 0;
+    DISRUPTION_FILTER_SEVERE = 1;
 }
 
 enum DisruptionInterval {

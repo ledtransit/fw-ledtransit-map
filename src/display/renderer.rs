@@ -723,7 +723,7 @@ async fn render_disruptions() {
             true
         };
         if !line_enabled {
-            continue;
+            continue; // Don't render disruption of disabled line
         }
 
         // Determine color
@@ -745,7 +745,21 @@ async fn render_disruptions() {
         let direction_hint_to_stop_id =
             (disruption.direction_hint_from_stop_id_x_to_stop_id & 0xFFFF) as u16;
         let is_bidirectional =
-            (disruption.bidirectional_x_entire_line_x_stop_count & 0x80000000) != 0;
+            (disruption.bidirectional_x_entire_line_x_affects_all_lines_x_stop_count & 0x80000000)
+                != 0;
+        let affects_all_lines =
+            (disruption.bidirectional_x_entire_line_x_affects_all_lines_x_stop_count & 0x20000000)
+                != 0;
+
+        // Check if disruption is visible based on disruption filter
+        match DisruptionFilter::try_from(config.disruption_filter) {
+            Ok(DisruptionFilter::Severe) => {
+                if !affects_all_lines {
+                    continue; // In severe mode, only render disruptions with no alternative lines for same route
+                }
+            }
+            _ => {}
+        }
 
         // Get from and to pixel locations
         let from_loc_id = match store
@@ -796,7 +810,7 @@ async fn render_disruptions() {
         let mut path_buf = [Default::default(); MAX_PATH_LEN];
 
         if let Some(to_loc_id) = to_loc_id_opt {
-            // 1) Disruption between two points: Find valid path between disruption from and to stops
+            // 1. Disruption between two points: Find valid path between disruption from and to stops
             let result = path_find::find_shortest_path_between_pixel_locations(
                 from_loc_id,
                 to_loc_id,
@@ -968,12 +982,23 @@ async fn render_disruptions() {
     let available_disrupted_lines: Vec<AvailableDisruptedLine> = disruptions
         .iter()
         .filter_map(|disruption| {
-            let line = lines.get(disruption.line_id as usize)?;
-            let bidirectional =
-                (disruption.bidirectional_x_entire_line_x_stop_count & 0x80000000) != 0;
-            let entire_line =
-                (disruption.bidirectional_x_entire_line_x_stop_count & 0x40000000) != 0;
-            let stop_count = disruption.bidirectional_x_entire_line_x_stop_count & 0x3FFFFFFF;
+            let line_id = disruption.line_id_x_disruption_id >> 16;
+            let line = lines.get(line_id as usize)?;
+            let bidirectional = (disruption
+                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
+                & 0x80000000)
+                != 0;
+            let entire_line = (disruption
+                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
+                & 0x40000000)
+                != 0;
+            let affects_all_lines = (disruption
+                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
+                & 0x20000000)
+                != 0;
+            let stop_count = disruption
+                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
+                & 0x1FFFFFFF;
             let from_stop_id = (disruption.from_stop_id_x_to_stop_id >> 16) as u16;
             let to_stop_id = (disruption.from_stop_id_x_to_stop_id & 0xFFFF) as u16;
             let direction_hint_from_stop_id =
@@ -1030,6 +1055,7 @@ async fn render_disruptions() {
                 to_coord,
                 direction_hint_from_coord,
                 direction_hint_to_coord,
+                affects_all_lines,
             })
         })
         .collect();
