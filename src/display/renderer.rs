@@ -209,6 +209,7 @@ async fn render_vehicles() {
     let primary_color = rgb8_from_packed(config.primary_color_rgb8);
     let secondary_color = rgb8_from_packed(config.secondary_color_rgb8);
     let tertiary_color = rgb8_from_packed(config.tertiary_color_rgb8);
+    let disruption_color = rgb8_from_packed(config.disruption_color_rgb8);
     let primary_hsv = rgb2hsv(primary_color);
     let secondary_hsv = rgb2hsv(secondary_color);
     let vehicle_filter_meters_sq = (config.vehicle_distance_threshold_meters as i64).pow(2);
@@ -297,7 +298,7 @@ async fn render_vehicles() {
         let segment_wait_seconds = segment.move_seconds_x_wait_seconds & 0xFFFF;
         let segment_total_via_move_secs =
             segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0xFFFF;
-        let _segment_is_canceled =
+        let segment_is_canceled =
             (segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0x80000000) != 0;
 
         // Get segment from and to coordinates
@@ -609,7 +610,11 @@ async fn render_vehicles() {
                         val: (lerp(primary_hsv.val as f32, secondary_hsv.val as f32, ratio) as u8),
                     })
                 } else {
-                    tertiary_color
+                    if segment_is_canceled {
+                        disruption_color
+                    } else {
+                        tertiary_color
+                    }
                 }
             }
             Ok(ColorMode::SpeedHeatmap) => {
