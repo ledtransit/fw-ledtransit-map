@@ -93,3 +93,11 @@ pub fn rgb8_brightness(rgb: RGB8, ratio: f32) -> RGB8 {
         b: (rgb.b as f32 * ratio).min(255.0) as u8,
     }
 }
+
+pub fn rgb8_max(rgb1: RGB8, rgb2: RGB8) -> RGB8 {
+    RGB8 {
+        r: rgb1.r.max(rgb2.r),
+        g: rgb1.g.max(rgb2.g),
+        b: rgb1.b.max(rgb2.b),
+    }
+}

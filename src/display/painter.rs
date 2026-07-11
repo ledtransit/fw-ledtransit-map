@@ -12,7 +12,7 @@ use crate::{
     },
     net::ws_client::client_proto::{DisruptionInterval, DisruptionMode, RenderMode},
     store::{app_settings, transit_data},
-    util::{lerp, rgb8_brightness},
+    util::{lerp, rgb8_brightness, rgb8_max},
 };
 
 const PAINTER_FPS: u32 = 30;
@@ -206,7 +206,10 @@ async fn draw_frame() {
                         // Falling
                         (1.0 - ripple_phase_unit) * 2.0
                     };
-                    pixel_buf[*pixel as usize] = rgb8_brightness(rgb, brightness_unit);
+                    pixel_buf[*pixel as usize] = rgb8_max(
+                        pixel_buf[*pixel as usize],
+                        rgb8_brightness(rgb, brightness_unit),
+                    );
                 }
             }
             Err(_) => {}
