@@ -324,6 +324,10 @@ where
         return Ok(());
     }
 
+    // Fade out leds first, so the system lag induced by the blocking WiFi connect is not visible
+    leds::set_pixels(LedPixels::FadeOut).await;
+    leds::wait_pixels_animation_complete().await;
+
     // Configure WiFi station config with provided credentials
     leds::set_status(LedStatus::ConnectingWifi);
     let res = controller
@@ -360,12 +364,15 @@ where
                 Err(e) => {
                     info!("WiFi start error: {:?}", e);
                     leds::set_status(LedStatus::WifiError);
+                    leds::set_pixels(LedPixels::DemoMode).await;
                     send_response(conn, 500, "Internal Server Error", &[], None).await?;
                 }
             }
         }
         Err(e) => {
             info!("Set config error: {:?}", e);
+            leds::set_status(LedStatus::WifiError);
+            leds::set_pixels(LedPixels::DemoMode).await;
             send_response(conn, 500, "Internal Server Error", &[], None).await?;
         }
     }
