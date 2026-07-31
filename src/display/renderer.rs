@@ -53,7 +53,7 @@ pub struct RenderedVehicle {
     pub prev: PixelState,
     pub cur: PixelState,
     pub last_updated_instant_ms: u32,
-    pub trip_id: NonMax<u16>, // Stable unique ID
+    pub trip_id: NonMax<u16>, // Stable unique ID, server-provided
 }
 
 impl Default for RenderedVehicle {
@@ -84,7 +84,7 @@ pub struct RenderedDisruption {
     pub prev_rgb: RGB8,
     pub cur_rgb: RGB8,
     pub last_updated_instant_ms: u32,
-    pub disruption_id: NonMax<u16>, // Stable unique ID
+    pub disruption_id: NonMax<u16>, // Stable unique ID, server-provided
 }
 
 impl Default for RenderedDisruption {
@@ -148,17 +148,16 @@ async fn renderer_task() {
             .await
             .access_token
             .is_some();
-        let settings = app_settings::session::get_settings().await;
 
         if setup_complete {
             trace::flush_errors();
 
-            if settings.light_on {
-                render_vehicles().await;
+            // Render vehicles every frame. Departure times have 1s resolution but vehicle updates are spaced out sub-second by painter to visually distribute updates across the frame.
+            render_vehicles().await;
 
-                if is_disruptions_render_pending().await {
-                    render_disruptions().await;
-                }
+            // Disruptions change rarely and involve potentially long path finding, so only render them when transit data or user config changes
+            if is_disruptions_render_pending().await {
+                render_disruptions().await;
             }
         }
 

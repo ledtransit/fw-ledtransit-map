@@ -136,8 +136,13 @@ async fn draw_frame() {
     let ripple_delay_ms = lerp(10.0, 100.0, 1.0 - animation_speed_unit) as u64;
 
     // Draw disruptions
-    for (disruption_idx, disruption) in store.state.renderer_out.disruptions.iter().enumerate() {
-        let disruption_draw_delay_ms = (disruption_idx as u64) * disruption_draw_interval_ms;
+    for disruption in store.state.renderer_out.disruptions.iter() {
+        // Randomly space out start time of disruption draw animations across the render frame to make them look more random and less synchronized
+        let slot = pseudo_random_slot(
+            disruption.disruption_id.as_option().unwrap_or_default() as u32,
+            disruption_count as u32,
+        );
+        let disruption_draw_delay_ms = (slot as u64) * disruption_draw_interval_ms;
         let start_instant_ms = disruption.last_updated_instant_ms as u64 + disruption_draw_delay_ms;
 
         let mut rgb = RGB8 { r: 0, g: 0, b: 0 };
@@ -237,16 +242,20 @@ async fn draw_frame() {
     let mut z_buffer = [0u8; CONFIG.cfg.pixel_count];
 
     // Draw vehicles
-    for (vehicle_idx, vehicle) in store.state.renderer_out.vehicles.iter().enumerate() {
-        // Equally space out vehicle draw calls over renderer frame time
+    for vehicle in store.state.renderer_out.vehicles.iter() {
+        // Randomly space out start time of vehicle draw animations across the render frame to make them look more random and less synchronized
         let vehicle_updated_this_render_frame = now_instant_ms
             .saturating_sub(vehicle.last_updated_instant_ms as u64)
             < renderer_frame_time_ms * 2; // Could overlap previous frame
+        let slot = pseudo_random_slot(
+            vehicle.trip_id.as_option().unwrap_or_default() as u32,
+            vehicle_count as u32,
+        );
         let vehicle_draw_delay_ms =
             if config_changed_this_render_frame && vehicle_updated_this_render_frame {
                 0 // Draw immediately if config changed this frame and vehicle was updated recently
             } else {
-                (vehicle_idx as u64) * vehicle_draw_interval_ms
+                (slot as u64) * vehicle_draw_interval_ms
             };
         let start_instant_ms = vehicle.last_updated_instant_ms as u64 + vehicle_draw_delay_ms;
         let time_since_rendered_first_sec = (start_instant_ms
@@ -363,4 +372,9 @@ fn write_pixel_z(
         z_buffer[idx] = z_value;
         pix_buffer[idx] = color;
     }
+}
+
+fn pseudo_random_slot(trip_id: u32, num_slots: u32) -> u32 {
+    // Knuth multiplicative hash
+    trip_id.wrapping_mul(0x9E3779B1).wrapping_add(0x7F4A7C15) % num_slots
 }
