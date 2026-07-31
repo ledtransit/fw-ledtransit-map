@@ -12,6 +12,7 @@ use crate::{
     },
     net::ws_client::client_proto::{DisruptionInterval, DisruptionMode, RenderMode},
     store::{app_settings, transit_data},
+    time,
     util::{lerp, rgb8_brightness, rgb8_max},
 };
 
@@ -31,6 +32,7 @@ async fn draw_task() {
             .is_some();
         let settings = app_settings::session::get_settings().await;
 
+        // Only draw to the pixel buffer if the WiFi setup is complete, we are not in LED testing mode and light is turn on
         if setup_complete && !settings.test_mode_active {
             automation::step().await;
 
@@ -60,6 +62,27 @@ async fn draw_frame() {
         Some(guard) => guard,
         None => return, // No data
     };
+
+    if store.state.is_data_stale {
+        // If data was marked as stale, skip drawing and let the offline animation run
+        return;
+    }
+
+    let now_timestamp = time::get_unix_timestamp_seconds().await;
+    let data_simulated_until_timestamp = store.data.simulated_until_unix_timestamp;
+    let num_secs_after_data_simulated_end =
+        now_timestamp.saturating_sub(data_simulated_until_timestamp);
+    let is_data_stale = num_secs_after_data_simulated_end > 60; // 1 minute after end of simulated data
+
+    // If no data was recently received, switch to offline display
+    if is_data_stale {
+        drop(store_guard);
+        transit_data::on_data_stale().await;
+        leds::set_pixels(LedPixels::FadeOut).await;
+        leds::wait_pixels_animation_complete().await;
+        leds::set_pixels(LedPixels::DemoMode).await;
+        return;
+    }
 
     let drawn_first_frame_at_instant_ms =
         store.state.rendered_state.drawn_first_frame_at_instant_ms;
