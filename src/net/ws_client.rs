@@ -14,7 +14,7 @@ use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
 };
 use embassy_time::{Duration, Instant, TimeoutError, Timer, with_timeout};
-use embedded_io_async::Write;
+use embedded_io_async::{ErrorKind, Write};
 use envparse::parse_env;
 use esp_hal::rng::Rng;
 use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls};
@@ -157,6 +157,7 @@ async fn ws_client_task(
                         continue;
                     }
                     WsClientError::WsError(WsError::Invalid)
+                    | WsClientError::WsError(WsError::Io(SessionError::Io(ErrorKind::Other)))
                     | WsClientError::Timeout(TimeoutError) => {} // ignore
                     _ => {
                         trace::err!("WebSocket connection error: {:?}", e);
