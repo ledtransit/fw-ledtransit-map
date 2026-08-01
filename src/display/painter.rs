@@ -35,10 +35,7 @@ async fn draw_task() {
         // Only draw to the pixel buffer if the WiFi setup is complete, we are not in LED testing mode and light is turn on
         if setup_complete && !settings.test_mode_active {
             automation::step().await;
-
-            if settings.light_on {
-                draw_frame().await;
-            }
+            draw_frame().await;
         }
 
         // Frame delay
@@ -57,6 +54,8 @@ async fn draw_task() {
 }
 
 async fn draw_frame() {
+    let settings = app_settings::session::get_settings().await;
+
     let mut store_guard = transit_data::get_mut().await;
     let store = match store_guard.as_mut() {
         Some(guard) => guard,
@@ -80,7 +79,9 @@ async fn draw_frame() {
         transit_data::on_data_stale().await;
         leds::set_pixels(LedPixels::FadeOut).await;
         leds::wait_pixels_animation_complete().await;
-        leds::set_pixels(LedPixels::DemoMode).await;
+        if settings.light_on {
+            leds::set_pixels(LedPixels::DemoMode).await;
+        }
         return;
     }
 
@@ -101,6 +102,11 @@ async fn draw_frame() {
 
     if rendered_data_first_at_instant_ms.is_none() {
         // Not rendered data yet, skip drawing
+        return;
+    }
+
+    // Light turned off, no need to draw to the pixel buffer
+    if !settings.light_on {
         return;
     }
 
