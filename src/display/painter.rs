@@ -71,7 +71,7 @@ async fn draw_frame() {
     let data_simulated_until_timestamp = store.data.simulated_until_unix_timestamp;
     let num_secs_after_data_simulated_end =
         now_timestamp.saturating_sub(data_simulated_until_timestamp);
-    let is_data_stale = num_secs_after_data_simulated_end > 60; // 1 minute after end of simulated data
+    let is_data_stale = num_secs_after_data_simulated_end > 120; // 2 minutes after end of simulated data
 
     // If no data was recently received, switch to offline display
     if is_data_stale {
