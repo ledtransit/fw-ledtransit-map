@@ -137,6 +137,11 @@ After flashing, detach and re-attach the USB cable without holding the button to
 Contributions to the firmware are welcome! Please open an issue or submit a pull request if you have any suggestions or improvements.
 Please note that we will not consider fully LLM-generated code contributions, as we want to ensure that all code remains maintainable.
 
+## License
+
+The firmware is licensed under the [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) license. See the [LICENSE](LICENSE) file for details.
+Meaning that you are free to use, modify, and distribute the firmware, but any derivative works must also be released open-source under the same license.
+
 ## Project structure
 
 ```text
