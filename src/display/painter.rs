@@ -12,6 +12,7 @@ use crate::{
     },
     net::ws_client::client_proto::{DisruptionInterval, DisruptionMode, RenderMode},
     store::{app_settings, transit_data},
+    time,
     util::{lerp, rgb8_brightness, rgb8_max},
 };
 
@@ -31,12 +32,10 @@ async fn draw_task() {
             .is_some();
         let settings = app_settings::session::get_settings().await;
 
+        // Only draw to the pixel buffer if the WiFi setup is complete, we are not in LED testing mode and light is turn on
         if setup_complete && !settings.test_mode_active {
             automation::step().await;
-
-            if settings.light_on {
-                draw_frame().await;
-            }
+            draw_frame().await;
         }
 
         // Frame delay
@@ -55,11 +54,36 @@ async fn draw_task() {
 }
 
 async fn draw_frame() {
+    let settings = app_settings::session::get_settings().await;
+
     let mut store_guard = transit_data::get_mut().await;
     let store = match store_guard.as_mut() {
         Some(guard) => guard,
         None => return, // No data
     };
+
+    if store.state.is_data_stale {
+        // If data was marked as stale, skip drawing and let the offline animation run
+        return;
+    }
+
+    let now_timestamp = time::get_unix_timestamp_seconds().await;
+    let data_simulated_until_timestamp = store.data.simulated_until_unix_timestamp;
+    let num_secs_after_data_simulated_end =
+        now_timestamp.saturating_sub(data_simulated_until_timestamp);
+    let is_data_stale = num_secs_after_data_simulated_end > 120; // 2 minutes after end of simulated data
+
+    // If no data was recently received, switch to offline display
+    if is_data_stale {
+        drop(store_guard);
+        transit_data::on_data_stale().await;
+        leds::set_pixels(LedPixels::FadeOut).await;
+        leds::wait_pixels_animation_complete().await;
+        if settings.light_on {
+            leds::set_pixels(LedPixels::DemoMode).await;
+        }
+        return;
+    }
 
     let drawn_first_frame_at_instant_ms =
         store.state.rendered_state.drawn_first_frame_at_instant_ms;
@@ -78,6 +102,11 @@ async fn draw_frame() {
 
     if rendered_data_first_at_instant_ms.is_none() {
         // Not rendered data yet, skip drawing
+        return;
+    }
+
+    // Light turned off, no need to draw to the pixel buffer
+    if !settings.light_on {
         return;
     }
 
@@ -113,8 +142,13 @@ async fn draw_frame() {
     let ripple_delay_ms = lerp(10.0, 100.0, 1.0 - animation_speed_unit) as u64;
 
     // Draw disruptions
-    for (disruption_idx, disruption) in store.state.renderer_out.disruptions.iter().enumerate() {
-        let disruption_draw_delay_ms = (disruption_idx as u64) * disruption_draw_interval_ms;
+    for disruption in store.state.renderer_out.disruptions.iter() {
+        // Randomly space out start time of disruption draw animations across the render frame to make them look more random and less synchronized
+        let slot = pseudo_random_slot(
+            disruption.disruption_id.as_option().unwrap_or_default() as u32,
+            disruption_count as u32,
+        );
+        let disruption_draw_delay_ms = (slot as u64) * disruption_draw_interval_ms;
         let start_instant_ms = disruption.last_updated_instant_ms as u64 + disruption_draw_delay_ms;
 
         let mut rgb = RGB8 { r: 0, g: 0, b: 0 };
@@ -214,16 +248,20 @@ async fn draw_frame() {
     let mut z_buffer = [0u8; CONFIG.cfg.pixel_count];
 
     // Draw vehicles
-    for (vehicle_idx, vehicle) in store.state.renderer_out.vehicles.iter().enumerate() {
-        // Equally space out vehicle draw calls over renderer frame time
+    for vehicle in store.state.renderer_out.vehicles.iter() {
+        // Randomly space out start time of vehicle draw animations across the render frame to make them look more random and less synchronized
         let vehicle_updated_this_render_frame = now_instant_ms
             .saturating_sub(vehicle.last_updated_instant_ms as u64)
             < renderer_frame_time_ms * 2; // Could overlap previous frame
+        let slot = pseudo_random_slot(
+            vehicle.trip_id.as_option().unwrap_or_default() as u32,
+            vehicle_count as u32,
+        );
         let vehicle_draw_delay_ms =
             if config_changed_this_render_frame && vehicle_updated_this_render_frame {
                 0 // Draw immediately if config changed this frame and vehicle was updated recently
             } else {
-                (vehicle_idx as u64) * vehicle_draw_interval_ms
+                (slot as u64) * vehicle_draw_interval_ms
             };
         let start_instant_ms = vehicle.last_updated_instant_ms as u64 + vehicle_draw_delay_ms;
         let time_since_rendered_first_sec = (start_instant_ms
@@ -340,4 +378,9 @@ fn write_pixel_z(
         z_buffer[idx] = z_value;
         pix_buffer[idx] = color;
     }
+}
+
+fn pseudo_random_slot(trip_id: u32, num_slots: u32) -> u32 {
+    // Knuth multiplicative hash
+    trip_id.wrapping_mul(0x9E3779B1).wrapping_add(0x7F4A7C15) % num_slots
 }

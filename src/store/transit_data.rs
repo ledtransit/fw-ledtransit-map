@@ -31,6 +31,7 @@ pub struct TransitDataState {
     pub stop_id_to_loc_id_map: Vec<NonMax<u16>>, // Precomputed map of stop indices to pixel locations based on closest stop coordinates
     pub rendered_state: RendererState,
     pub renderer_out: RendererOutput,
+    pub is_data_stale: bool, // No new transit data received in a while
 }
 
 impl Default for TransitDataState {
@@ -48,6 +49,7 @@ impl Default for TransitDataState {
                 vehicles: vec![],
                 disruptions: vec![],
             },
+            is_data_stale: false,
         }
     }
 }
@@ -266,6 +268,7 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
                     .unwrap_or_default()
                     .rendered_state
             },
+            is_data_stale: false,
         },
         stats: TransitDataStats {
             telemetry_pending: true,
@@ -292,6 +295,22 @@ pub async fn clear() {
             .rendered_state
             .rendered_data_first_at_instant_ms = None;
         store_ref.data = TransitData::default();
+    }
+}
+
+pub async fn on_data_stale() {
+    clear().await;
+    let mut store = TRANSIT_DATA_STORE.lock().await;
+    if let Some(store_ref) = store.as_mut() {
+        store_ref.state.is_data_stale = true;
+        store_ref
+            .state
+            .rendered_state
+            .drawn_first_frame_at_instant_ms = None;
+        store_ref.state.renderer_out = RendererOutput {
+            vehicles: vec![],
+            disruptions: vec![],
+        };
     }
 }
 

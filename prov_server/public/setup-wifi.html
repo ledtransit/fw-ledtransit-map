@@ -299,19 +299,8 @@
           })
           .catch((error) => {
             if (error.name === "AbortError") {
-              notificationBody.textContent = "{{wifiConnectedSuccessfully}}";
-              notificationButton.classList.remove("hidden");
-              notificationButton.innerHTML = "{{continue}}";
-              notificationButton.onclick = () => {
-                window.location.href = `${forwardUrl}`;
-              };
-              notification.classList.remove(
-                "hidden",
-                "info",
-                "success",
-                "error",
-              );
-              notification.classList.add("success");
+              // On network change, try again
+              submitWifiCredentials(tok, redirectUrl);
               return;
             }
             console.error("Error:", error);

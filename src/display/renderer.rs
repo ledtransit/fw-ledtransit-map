@@ -53,7 +53,7 @@ pub struct RenderedVehicle {
     pub prev: PixelState,
     pub cur: PixelState,
     pub last_updated_instant_ms: u32,
-    pub trip_id: NonMax<u16>, // Stable unique ID
+    pub trip_id: NonMax<u16>, // Stable unique ID, server-provided
 }
 
 impl Default for RenderedVehicle {
@@ -84,7 +84,7 @@ pub struct RenderedDisruption {
     pub prev_rgb: RGB8,
     pub cur_rgb: RGB8,
     pub last_updated_instant_ms: u32,
-    pub disruption_id: NonMax<u16>, // Stable unique ID
+    pub disruption_id: NonMax<u16>, // Stable unique ID, server-provided
 }
 
 impl Default for RenderedDisruption {
@@ -148,17 +148,16 @@ async fn renderer_task() {
             .await
             .access_token
             .is_some();
-        let settings = app_settings::session::get_settings().await;
 
         if setup_complete {
             trace::flush_errors();
 
-            if settings.light_on {
-                render_vehicles().await;
+            // Render vehicles every frame. Departure times have 1s resolution but vehicle updates are spaced out sub-second by painter to visually distribute updates across the frame.
+            render_vehicles().await;
 
-                if is_disruptions_render_pending().await {
-                    render_disruptions().await;
-                }
+            // Disruptions change rarely and involve potentially long path finding, so only render them when transit data or user config changes
+            if is_disruptions_render_pending().await {
+                render_disruptions().await;
             }
         }
 
@@ -209,6 +208,7 @@ async fn render_vehicles() {
     let primary_color = rgb8_from_packed(config.primary_color_rgb8);
     let secondary_color = rgb8_from_packed(config.secondary_color_rgb8);
     let tertiary_color = rgb8_from_packed(config.tertiary_color_rgb8);
+    let disruption_color = rgb8_from_packed(config.disruption_color_rgb8);
     let primary_hsv = rgb2hsv(primary_color);
     let secondary_hsv = rgb2hsv(secondary_color);
     let vehicle_filter_meters_sq = (config.vehicle_distance_threshold_meters as i64).pow(2);
@@ -297,7 +297,7 @@ async fn render_vehicles() {
         let segment_wait_seconds = segment.move_seconds_x_wait_seconds & 0xFFFF;
         let segment_total_via_move_secs =
             segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0xFFFF;
-        let _segment_is_canceled =
+        let segment_is_canceled =
             (segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0x80000000) != 0;
 
         // Get segment from and to coordinates
@@ -609,7 +609,11 @@ async fn render_vehicles() {
                         val: (lerp(primary_hsv.val as f32, secondary_hsv.val as f32, ratio) as u8),
                     })
                 } else {
-                    tertiary_color
+                    if segment_is_canceled {
+                        disruption_color
+                    } else {
+                        tertiary_color
+                    }
                 }
             }
             Ok(ColorMode::SpeedHeatmap) => {

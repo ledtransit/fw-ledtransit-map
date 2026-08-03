@@ -244,7 +244,7 @@ async fn wifi_net_task(
                 }
 
                 // On failure, try again after a delay
-                Timer::after(Duration::from_secs(1)).await;
+                Timer::after(Duration::from_secs(3)).await;
                 if !WIFI_NET_SIGNAL.signaled() {
                     connect_ap();
                 }

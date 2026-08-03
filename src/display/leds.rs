@@ -154,10 +154,11 @@ async fn led_buffer_iter_processed(led_buffer: &[RGB8]) -> impl Iterator<Item = 
 }
 
 pub async fn get_current_estimate_milliamps() -> u32 {
-    const CHA_RED_MA: f32 = 5.175;
-    const CHA_GREEN_MA: f32 = 5.375;
-    const CHA_BLUE_MA: f32 = 5.9;
-    const SYS_IDLE_MA: f32 = 233.0;
+    // Heuristic linear approximation of current draw based on LED RGB channel brightnesses, through point at 50% brightness setting midday with fixed 5.00V supply
+    const CHA_RED_MA: f32 = 5.2;
+    const CHA_GREEN_MA: f32 = 5.05;
+    const CHA_BLUE_MA: f32 = 5.125;
+    const SYS_IDLE_MA: f32 = 239.0; // WiFi connected, actively rendering and drawing
 
     let led_buffer = LED_BUFFER.lock().await;
     let leds_iter = led_buffer_iter_processed(&*led_buffer).await;

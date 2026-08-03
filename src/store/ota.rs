@@ -6,6 +6,7 @@ use core::{ffi::CStr, net::SocketAddr, ops::DerefMut};
 use defmt::{debug, error, info};
 use edge_http::{Method, io::client};
 use edge_nal_embassy::{Tcp, TcpBuffers};
+use edge_nal_tls::TlsConnector;
 use embassy_executor::Spawner;
 use embassy_net::{Stack, dns};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -22,7 +23,7 @@ use esp_hal::{
     sha::{Sha, Sha256},
 };
 use esp_storage::FlashStorage;
-use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsConnector};
+use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls};
 use nb::block;
 use nourl::{Url, UrlScheme};
 use p256::{ecdsa::signature::Verifier, pkcs8::DecodePublicKey};
@@ -164,10 +165,10 @@ async fn run(
                 // Wait for scheduled delay or cancel signal
                 match with_timeout(delay, OTA_CANCEL.wait()).await {
                     Err(TimeoutError) => {
-                        info!("OTA update scheduled delay elapsed, starting update");
+                        info!("OTA update: scheduled delay elapsed, starting update");
                     }
                     Ok(_) => {
-                        info!("OTA update scheduled delay canceled, aborting update");
+                        info!("OTA update: scheduled delay canceled, aborting update");
                         app_settings::session::update_settings(|set| {
                             set.auto_update_scheduled_unix_timestamp = None;
                         })
@@ -604,11 +605,11 @@ pub async fn schedule_firmware_update(update: &DeviceUpdate, delay: Duration) {
 }
 
 pub fn init_boot_partition() {
-    signal(OtaEvent::InitBootPartition);
+    OTA_SIGNAL.signal(OtaEvent::InitBootPartition);
 }
 
 pub fn boot_from_factory() {
-    signal(OtaEvent::BootFromFactory);
+    OTA_SIGNAL.signal(OtaEvent::BootFromFactory);
 }
 
 pub fn cancel() {
