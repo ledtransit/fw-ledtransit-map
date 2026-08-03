@@ -223,8 +223,11 @@ where
     T: Read + Write,
 {
     info!("API: Identify");
+    send_response(conn, 200, "OK", &[], None).await?;
     leds::set_pixels(LedPixels::Identify).await;
-    send_response(conn, 200, "OK", &[], None).await
+    leds::wait_pixels_animation_complete().await;
+    leds::set_pixels(LedPixels::DemoMode).await;
+    Ok(())
 }
 
 async fn handle_api_route_scan<T, const N: usize>(
