@@ -443,6 +443,7 @@ async fn handle_proto_message(payload: Payload, payload_len: usize) -> Result<()
                 );
             }
             send_info();
+            send_config();
             leds::set_status_led_from_session().await;
         }
         Payload::Status(status) => {
