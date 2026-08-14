@@ -539,7 +539,7 @@ async fn download_ota_update_to_flash(
         let speed_bps = (total_bytes_read as f32 / elapsed_secs.max(1) as f32) as u32;
         let percent = ((total_bytes_read as f32 / total_length.max(1) as f32) * 100.0) as u8;
 
-        if percent != progress_percent {
+        if percent >= progress_percent + 2 {
             progress_percent = percent;
             app_settings::session::update_settings(|set| {
                 set.update_progress_percent = progress_percent;
