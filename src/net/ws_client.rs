@@ -702,13 +702,11 @@ async fn build_telemetry(
                 .simulated_until_timestamp,
             transit_data_downlink_bytes_per_second: transit_data_stats
                 .transit_data_downlink_bytes_per_second,
-            available_vehicle_lines: transit_data_stats.available_vehicle_lines,
             heap_size_bytes: heap_stats.size as u32,
             heap_max_used_bytes: heap_stats.max_usage as u32,
             heap_current_used_bytes: heap_stats.current_usage as u32,
             feed_source: transit_data_stats.feed_source.as_str().into(),
             num_vehicles_visible_real_time: transit_data_stats.num_vehicles_visible_real_time,
-            available_disrupted_lines: transit_data_stats.available_disrupted_lines,
             brightness_percent: leds::get_current_brightness_percent().await as u32,
             auto_update_scheduled_unix_timestamp: sessions_settings
                 .auto_update_scheduled_unix_timestamp,

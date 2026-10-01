@@ -10,7 +10,7 @@ use crate::{
     display::renderer::{self, RenderedDisruption, RenderedVehicle, RendererOutput, RendererState},
     net::ws_client::{
         self,
-        client_proto::{AvailableDisruptedLine, AvailableVehicleLine, LineConfig, TransitData},
+        client_proto::{LineConfig, TransitData},
     },
     store::app_settings,
     time, trace,
@@ -66,8 +66,6 @@ pub struct TransitDataStats {
     pub num_vehicles_visible_real_time: u32,
     pub num_disruptions_available: u32,
     pub num_disruptions_visible: u32,
-    pub available_vehicle_lines: Vec<AvailableVehicleLine>,
-    pub available_disrupted_lines: Vec<AvailableDisruptedLine>,
     pub num_pixels_on: u32,
     pub feed_source: String,
 }

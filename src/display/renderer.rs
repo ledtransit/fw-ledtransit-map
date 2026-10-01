@@ -17,13 +17,12 @@ use crate::{
     net::ws_client::{
         self,
         client_proto::{
-            AvailableDisruptedLine, AvailableVehicleLine, ColorMode, Coordinates, DisruptionFilter,
-            RealtimeFilter, VehicleFilter, ViaStop,
+            ColorMode, DisruptionFilter, DisruptionType, RealtimeFilter, VehicleFilter, ViaStop,
         },
     },
     store::{
         app_settings,
-        transit_data::{self, TransitDataStore},
+        transit_data::{self},
     },
     time, trace,
     util::{NonMax, lerp, rgb8_brightness, rgb8_from_packed},
@@ -682,19 +681,6 @@ async fn render_vehicles() {
         }
     }
 
-    // Collect stats
-    let available_vehicle_lines: Vec<AvailableVehicleLine> = lines
-        .iter()
-        .enumerate()
-        .map(|(idx, line)| AvailableVehicleLine {
-            line_name: line.name.clone(),
-            vehicle_count: vehicles
-                .iter()
-                .filter(|veh| (veh.line_id_x_trip_id >> 16) as usize == idx)
-                .count() as u32,
-        })
-        .collect();
-
     // Store stats
     if store.stats.telemetry_pending {
         store.stats.telemetry_pending = false;
@@ -723,7 +709,6 @@ async fn render_vehicles() {
     store.stats.num_vehicles_available = num_vehicles_available;
     store.stats.num_vehicles_visible = num_vehicles_visible;
     store.stats.num_vehicles_visible_real_time = num_vehicles_visible_real_time;
-    store.stats.available_vehicle_lines = available_vehicle_lines;
 }
 
 async fn render_disruptions() {
@@ -1058,92 +1043,9 @@ async fn render_disruptions() {
         }
     }
 
-    // Collect stats
-    let available_disrupted_lines: Vec<AvailableDisruptedLine> = disruptions
-        .iter()
-        .filter_map(|disruption| {
-            let line_id = disruption.line_id_x_disruption_id >> 16;
-            let line = lines.get(line_id as usize)?;
-            let bidirectional = (disruption
-                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
-                & 0x80000000)
-                != 0;
-            let entire_line = (disruption
-                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
-                & 0x40000000)
-                != 0;
-            let affects_all_lines = (disruption
-                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
-                & 0x20000000)
-                != 0;
-            let stop_count = disruption
-                .bidirectional_x_entire_line_x_affects_all_lines_x_stop_count
-                & 0x1FFFFFFF;
-            let from_stop_id = (disruption.from_stop_id_x_to_stop_id >> 16) as u16;
-            let to_stop_id = (disruption.from_stop_id_x_to_stop_id & 0xFFFF) as u16;
-            let direction_hint_from_stop_id =
-                (disruption.direction_hint_from_stop_id_x_to_stop_id >> 16) as u16;
-            let direction_hint_to_stop_id =
-                (disruption.direction_hint_from_stop_id_x_to_stop_id & 0xFFFF) as u16;
-
-            fn get_coord_from_stop_id(
-                store: &TransitDataStore,
-                stop_id: u16,
-            ) -> Option<Coordinates> {
-                let loc_id = store
-                    .state
-                    .stop_id_to_loc_id_map
-                    .get(stop_id as usize)
-                    .and_then(|opt| opt.as_option())?;
-                let loc_node = CONFIG.cfg.loc_pix_nodes.get(loc_id as usize)?;
-                Some(Coordinates {
-                    latitude_e7: loc_node.lat_e7,
-                    longitude_e7: loc_node.lng_e7,
-                })
-            }
-
-            let from_coord = get_coord_from_stop_id(store, from_stop_id)?;
-            let to_coord: Option<Coordinates> =
-                if let Some(to_stop_id) = NonMax::new_unchecked(to_stop_id).as_option() {
-                    get_coord_from_stop_id(store, to_stop_id)
-                } else {
-                    None
-                };
-            let direction_hint_from_coord: Option<Coordinates> =
-                if let Some(direction_hint_from_stop_id) =
-                    NonMax::new_unchecked(direction_hint_from_stop_id).as_option()
-                {
-                    get_coord_from_stop_id(store, direction_hint_from_stop_id)
-                } else {
-                    None
-                };
-            let direction_hint_to_coord: Option<Coordinates> =
-                if let Some(direction_hint_to_stop_id) =
-                    NonMax::new_unchecked(direction_hint_to_stop_id).as_option()
-                {
-                    get_coord_from_stop_id(store, direction_hint_to_stop_id)
-                } else {
-                    None
-                };
-
-            Some(AvailableDisruptedLine {
-                line_name: line.name.clone(),
-                stop_count,
-                bidirectional,
-                entire_line,
-                from_coord,
-                to_coord,
-                direction_hint_from_coord,
-                direction_hint_to_coord,
-                affects_all_lines,
-            })
-        })
-        .collect();
-
     store.stats.num_disruptions_available = num_disruptions_available;
     store.stats.num_disruptions_visible = num_disruptions_visible;
     store.state.rendered_state.disruptions_render_pending = false;
-    store.stats.available_disrupted_lines = available_disrupted_lines;
 }
 
 fn rgb2hsv(rgb: RGB8) -> Hsv {

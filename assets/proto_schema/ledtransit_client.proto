@@ -151,23 +151,6 @@ message Echo {
 
 // --- TYPES ---
 
-message AvailableVehicleLine {
-    required string line_name = 1;
-    required uint32 vehicle_count = 2;
-}
-
-message AvailableDisruptedLine {
-    required string line_name = 1;
-    required uint32 stop_count = 2;
-    required Coordinates from_coord = 3;
-    optional Coordinates to_coord = 4;
-    optional Coordinates direction_hint_to_coord = 5;
-    optional Coordinates direction_hint_from_coord = 6;
-    required bool bidirectional = 7;
-    required bool entire_line = 8;
-    required bool affects_all_lines = 9;
-}
-
 enum DeviceErrorType {
     DEVICE_ERROR_TYPE_PANIC = 0;
     DEVICE_ERROR_TYPE_ERROR = 1;
