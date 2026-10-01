@@ -103,7 +103,7 @@ pub mod persist {
                 disruption_primary_color_rgb8: pack_rgb8(255, 0, 76),
                 disruption_secondary_color_rgb8: pack_rgb8(255, 170, 0),
                 disruption_brightness_percent: 80,
-                disruption_interval: DisruptionInterval::Every3s as i32,
+                disruption_interval: DisruptionInterval::Every5s as i32,
                 animation_speed_percent: 100,
                 render_mode: RenderMode::SnapClosestTransition as i32,
                 vehicle_filter: VehicleFilter::All as i32,
