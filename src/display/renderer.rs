@@ -519,6 +519,7 @@ async fn render_vehicles() {
         // Find valid path between pixel locations to determine which pixels belong to the line the vehicle is on
         let result = path_find::find_shortest_path_between_pixel_locations(
             from_loc_id,
+            None,
             to_loc_id,
             &mut open_heap,
             &mut g_score,
@@ -803,12 +804,11 @@ async fn render_disruptions() {
             (disruption.direction_hint_from_stop_id_x_to_stop_id >> 16) as u16;
         let direction_hint_to_stop_id =
             (disruption.direction_hint_from_stop_id_x_to_stop_id & 0xFFFF) as u16;
-        let is_bidirectional =
-            (disruption.bidirectional_x_entire_line_x_affects_all_lines_x_stop_count & 0x80000000)
-                != 0;
-        let affects_all_lines =
-            (disruption.bidirectional_x_entire_line_x_affects_all_lines_x_stop_count & 0x20000000)
-                != 0;
+        let packed_flags_x_via_stop_id =
+            disruption.bidirectional_x_entire_line_x_affects_all_lines_x_via_stop_id_x_stop_count;
+        let is_bidirectional = (packed_flags_x_via_stop_id & 0x80000000) != 0;
+        let affects_all_lines = (packed_flags_x_via_stop_id & 0x20000000) != 0;
+        let via_stop_id = ((packed_flags_x_via_stop_id >> 13) & 0xFFFF) as u16;
 
         // Check if disruption is visible based on disruption filter
         match DisruptionFilter::try_from(config.disruption_filter) {
@@ -868,6 +868,27 @@ async fn render_disruptions() {
         } else {
             None
         };
+        let via_loc_id_opt =
+            if let Some(via_stop_id) = NonMax::new_unchecked(via_stop_id).as_option() {
+                match store
+                    .state
+                    .stop_id_to_loc_id_map
+                    .get(via_stop_id as usize)
+                    .and_then(|opt| opt.as_option())
+                {
+                    Some(loc_id) => Some(loc_id),
+                    _ => {
+                        trace::err!(
+                            "Disruption {} references invalid VIA stop ID {} (malformed)",
+                            disruption_idx,
+                            via_stop_id
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
 
         const MAX_PATH_LEN: usize = 64;
         const MAX_OPEN_NODES: usize = 128;
@@ -882,6 +903,7 @@ async fn render_disruptions() {
             // 1. Disruption between two points: Find valid path between disruption from and to stops
             let result = path_find::find_shortest_path_between_pixel_locations(
                 from_loc_id,
+                via_loc_id_opt,
                 to_loc_id,
                 &mut open_heap,
                 &mut g_score,
@@ -912,6 +934,7 @@ async fn render_disruptions() {
             let pixels_rev: Vec<u16> = if is_bidirectional {
                 let result_rev = path_find::find_shortest_path_between_pixel_locations(
                     to_loc_id,
+                    via_loc_id_opt,
                     from_loc_id,
                     &mut open_heap,
                     &mut g_score,
@@ -1011,6 +1034,7 @@ async fn render_disruptions() {
 
             let result = path_find::find_shortest_path_between_pixel_locations(
                 path_from_loc_id,
+                None,
                 path_to_loc_id,
                 &mut open_heap,
                 &mut g_score,

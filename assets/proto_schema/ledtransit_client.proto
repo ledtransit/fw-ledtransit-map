@@ -269,7 +269,7 @@ message Disruption {
     required uint32 line_id_x_disruption_id = 1; // u16 + u16
     required uint32 from_stop_id_x_to_stop_id = 2; // u16 + u16, to_stop_id u16::MAX -> only from stop affected
     required uint32 direction_hint_from_stop_id_x_to_stop_id = 3; // u16 + u16, direction_hint_to_stop_id u16::MAX -> all directions at from_stop_id affected, same for from_stop_id
-    required uint32 bidirectional_x_entire_line_x_affects_all_lines_x_stop_count = 4; // bool + bool + bool + u29
+    required uint32 bidirectional_x_entire_line_x_affects_all_lines_x_via_stop_id_x_stop_count = 4; // bool + bool + bool + u16 + u13, via_stop_id u16::MAX -> no via stop
     required DisruptionType type = 5;
 }
 

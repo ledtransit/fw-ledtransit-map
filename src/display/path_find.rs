@@ -51,8 +51,15 @@ impl core::fmt::Display for PathFindError {
     }
 }
 
+#[derive(Copy, Clone)]
+struct PathEndState {
+    dir: u16,
+    modes: u8,
+}
+
 pub fn find_shortest_path_between_pixel_locations<'a>(
     start_loc_idx: u16,
+    via_loc_idx: Option<u16>,
     goal_loc_idx: u16,
     open_heap: &mut [OpenLocNode],
     g_score: &mut [i64],
@@ -60,6 +67,60 @@ pub fn find_shortest_path_between_pixel_locations<'a>(
     closed_set: &mut [ClosedLocNode],
     path_buf: &'a mut [LocPixEdgeDirected],
 ) -> Result<&'a [LocPixEdgeDirected], PathFindError> {
+    // Via location is only meaningful if it is distinct from start and goal
+    let Some(via_loc_idx) = via_loc_idx.filter(|&via| via != start_loc_idx && via != goal_loc_idx)
+    else {
+        let (len, _) = find_shortest_path_segment(
+            start_loc_idx,
+            goal_loc_idx,
+            None,
+            open_heap,
+            g_score,
+            came_from,
+            closed_set,
+            path_buf,
+        )?;
+        return Ok(&path_buf[..len]);
+    };
+
+    // First segment: start -> via
+    let (len_first, via_state) = find_shortest_path_segment(
+        start_loc_idx,
+        via_loc_idx,
+        None,
+        open_heap,
+        g_score,
+        came_from,
+        closed_set,
+        path_buf,
+    )?;
+
+    // Second segment: via -> goal, continuing with arrival direction and transit modes at via (cannot U-turn or change modes at via)
+    // Overwrites the last entry of the first segment (via node with incoming pixel) with the via node using the outgoing pixel
+    let (len_second, _) = find_shortest_path_segment(
+        via_loc_idx,
+        goal_loc_idx,
+        Some(via_state),
+        open_heap,
+        g_score,
+        came_from,
+        closed_set,
+        &mut path_buf[len_first - 1..],
+    )?;
+
+    Ok(&path_buf[..len_first - 1 + len_second])
+}
+
+fn find_shortest_path_segment(
+    start_loc_idx: u16,
+    goal_loc_idx: u16,
+    start_state: Option<PathEndState>,
+    open_heap: &mut [OpenLocNode],
+    g_score: &mut [i64],
+    came_from: &mut [CameFromLocNode],
+    closed_set: &mut [ClosedLocNode],
+    path_buf: &mut [LocPixEdgeDirected],
+) -> Result<(usize, PathEndState), PathFindError> {
     let loc_nodes = &CONFIG.cfg.loc_pix_nodes;
     let num_locs = loc_nodes.len();
 
@@ -86,8 +147,8 @@ pub fn find_shortest_path_between_pixel_locations<'a>(
         OpenLocNode {
             idx: start_loc_idx,
             f: 0,
-            modes: start_modes & goal_modes,
-            dir: u16::MAX,
+            modes: start_modes & goal_modes & start_state.map_or(u8::MAX, |state| state.modes),
+            dir: start_state.map_or(u16::MAX, |state| state.dir),
         },
     ) {
         return Err(PathFindError::OutOfMemory);
@@ -132,7 +193,13 @@ pub fn find_shortest_path_between_pixel_locations<'a>(
             }
 
             path_buf[..len].reverse();
-            return Ok(&path_buf[..len]);
+            return Ok((
+                len,
+                PathEndState {
+                    dir: current.dir,
+                    modes: current.modes,
+                },
+            ));
         }
 
         // Check already closed this direction
