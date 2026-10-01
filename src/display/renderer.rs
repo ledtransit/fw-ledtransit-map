@@ -207,7 +207,7 @@ async fn render_vehicles() {
     let primary_color = rgb8_from_packed(config.primary_color_rgb8);
     let secondary_color = rgb8_from_packed(config.secondary_color_rgb8);
     let tertiary_color = rgb8_from_packed(config.tertiary_color_rgb8);
-    let disruption_color = rgb8_from_packed(config.disruption_color_rgb8);
+    let disruption_color = rgb8_from_packed(config.disruption_primary_color_rgb8);
     let primary_hsv = rgb2hsv(primary_color);
     let secondary_hsv = rgb2hsv(secondary_color);
     let vehicle_filter_meters_sq = (config.vehicle_distance_threshold_meters as i64).pow(2);
@@ -782,7 +782,11 @@ async fn render_disruptions() {
         }
 
         // Determine color
-        let color = rgb8_from_packed(config.disruption_color_rgb8);
+        let color = rgb8_from_packed(if disruption.r#type == DisruptionType::Suspended as i32 {
+            config.disruption_primary_color_rgb8
+        } else {
+            config.disruption_secondary_color_rgb8
+        });
 
         // Compute final RGB color
         let rgb_color = rgb8_brightness(
@@ -809,8 +813,18 @@ async fn render_disruptions() {
         // Check if disruption is visible based on disruption filter
         match DisruptionFilter::try_from(config.disruption_filter) {
             Ok(DisruptionFilter::Severe) => {
-                if !affects_all_lines {
-                    continue; // In severe mode, only render disruptions with no alternative lines for same route
+                if !affects_all_lines || disruption.r#type == DisruptionType::MinorDelays as i32 {
+                    continue; // Skip non-severe disruptions (has alternative or is minor delays)
+                }
+            }
+            Ok(DisruptionFilter::NoServiceSevere) => {
+                if !affects_all_lines || disruption.r#type != DisruptionType::Suspended as i32 {
+                    continue; // Skip non-severe disruptions (has alternative or is not suspended)
+                }
+            }
+            Ok(DisruptionFilter::NoServiceAll) => {
+                if disruption.r#type != DisruptionType::Suspended as i32 {
+                    continue; // Skip non-suspended disruptions
                 }
             }
             _ => {}

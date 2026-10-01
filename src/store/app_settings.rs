@@ -99,8 +99,9 @@ pub mod persist {
                 secondary_color_rgb8: pack_rgb8(255, 56, 20),
                 tertiary_color_rgb8: pack_rgb8(107, 255, 179),
                 color_temperature_shift: 0,
-                disruption_mode: DisruptionMode::Off as i32,
-                disruption_color_rgb8: pack_rgb8(255, 0, 76),
+                disruption_mode: DisruptionMode::Ripple as i32,
+                disruption_primary_color_rgb8: pack_rgb8(255, 0, 76),
+                disruption_secondary_color_rgb8: pack_rgb8(255, 170, 0),
                 disruption_brightness_percent: 80,
                 disruption_interval: DisruptionInterval::Every3s as i32,
                 animation_speed_percent: 100,
@@ -129,6 +130,7 @@ pub mod persist {
                 location_coord: None,
                 location_name: None,
                 disruption_filter: DisruptionFilter::Severe as i32,
+                disruptions_enabled: false,
             },
         }
     }
