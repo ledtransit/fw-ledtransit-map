@@ -96,6 +96,7 @@ fn main() {
         // Minify HTML/JS/CSS content
         let cfg = Cfg { minify_js: true, ..Default::default() };
         let minified_content = minify(input_content.as_bytes(), &cfg);
+        let minified_content = strip_script_comments(&String::from_utf8(minified_content).unwrap());
 
         // Write the minified content to the output file
         std::fs::write(&output_path, minified_content)
@@ -103,4 +104,23 @@ fn main() {
 
         println!("Minified {} -> {}", input_path, output_path);
     }
+}
+
+// minify-html keeps JS comments (no option to drop them), so reprint each
+// inline script without them
+fn strip_script_comments(html: &str) -> String {
+    let re = regex::Regex::new(r"(?s)(<script>)(.*?)(</script>)").unwrap();
+    re.replace_all(html, |cap: &regex::Captures| {
+        let allocator = oxc_allocator::Allocator::default();
+        let parsed = oxc_parser::Parser::new(&allocator, &cap[2], oxc_span::SourceType::default()).parse();
+        if !parsed.errors.is_empty() {
+            panic!("Failed to parse inline script: {:?}", parsed.errors);
+        }
+        let code = oxc_codegen::Codegen::new()
+            .with_options(oxc_codegen::CodegenOptions::minify())
+            .build(&parsed.program)
+            .code;
+        format!("{}{}{}", &cap[1], code, &cap[3])
+    })
+    .into_owned()
 }

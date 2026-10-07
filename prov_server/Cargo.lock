@@ -366,6 +366,10 @@ name = "fw-ledtransit-map-prov-server"
 version = "0.0.1"
 dependencies = [
  "minify-html",
+ "oxc_allocator",
+ "oxc_codegen",
+ "oxc_parser",
+ "oxc_span",
  "regex",
  "serde_json",
 ]

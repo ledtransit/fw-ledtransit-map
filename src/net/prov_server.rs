@@ -8,6 +8,7 @@ use edge_net::http::{
         server::{Connection, Handler},
     },
 };
+use embassy_time::{Duration, Timer};
 use embedded_io_async::{Read, Write};
 use esp_radio::wifi::{
     AuthenticationMethod, Config, ap::AccessPointConfig, scan::ScanConfig, sta::StationConfig,
@@ -85,6 +86,9 @@ struct AccessPointInfoApi {
 struct ConnectWifiRequestApi {
     ssid: heapless::String<32>,
     password: heapless::String<64>,
+    /// Provisioning token from the app, in the body so it never shows up in
+    /// a URL
+    token: heapless::String<64>,
 }
 
 impl HttpHandler {
@@ -167,10 +171,6 @@ impl Handler for HttpHandler {
             })
             .collect::<heapless::Vec<(&str, &str), 16>>();
 
-        let token = query_pairs
-            .iter()
-            .find(|(key, _)| *key == "tok")
-            .map(|(_, value)| heapless::String::<64>::try_from(*value).unwrap_or_default());
         let locale = query_pairs
             .iter()
             .find(|(key, _)| *key == "lang")
@@ -178,16 +178,24 @@ impl Handler for HttpHandler {
 
         // Serve static files and API routes
         match headers.method {
+            Method::Get | Method::Head if url_path == "/probe" => {
+                // Lets the app (on its own https page) tell the map is reachable
+                send_response(conn, 204, "No Content", &[], None).await?;
+            }
             Method::Get => {
                 // Serve static file
                 if let Some(file) = get_static_file_with_locale(url_path, locale) {
                     send_response(conn, 200, "OK", file.content, Some(file.mime_type)).await?;
+                } else {
+                    send_response(conn, 404, "Not Found", &[], None).await?;
                 }
             }
             Method::Head => {
                 // Serve static file without body
                 if let Some(file) = get_static_file_with_locale(url_path, locale) {
                     send_response(conn, 200, "OK", &[], Some(file.mime_type)).await?;
+                } else {
+                    send_response(conn, 404, "Not Found", &[], None).await?;
                 }
             }
             Method::Post => {
@@ -196,7 +204,7 @@ impl Handler for HttpHandler {
                     "/api/identify" => handle_api_route_identify(conn).await?,
                     "/api/scan-wifi" => handle_api_route_scan(conn, self.controller).await?,
                     "/api/connect-wifi" => {
-                        handle_api_route_connect(conn, self.controller, self.ap_ssid.clone(), token)
+                        handle_api_route_connect(conn, self.controller, self.ap_ssid.clone())
                             .await?
                     }
                     _ => {
@@ -281,25 +289,11 @@ async fn handle_api_route_connect<T, const N: usize>(
     conn: &mut Connection<'_, T, N>,
     controller: &'static SharedWifiController,
     ap_ssid: heapless::String<32>,
-    token: Option<heapless::String<64>>,
 ) -> Result<(), Error<T::Error>>
 where
     T: Read + Write,
 {
     info!("API: Connect to WiFi");
-
-    // Check have token from query parameters
-    if token.is_none() {
-        send_response(
-            conn,
-            401,
-            "Unauthorized",
-            b"Unauthorized: Missing token",
-            None,
-        )
-        .await?;
-        return Ok(());
-    }
 
     // Read request body
     let mut body_buf = [0u8; 512];
@@ -313,11 +307,20 @@ where
     let connect_request: ConnectWifiRequestApi = serde_json_core::from_str(body_str)
         .map_err(|_| Error::InvalidBody)?
         .0;
-    info!(
-        "Connecting to SSID: '{}' and token: {}",
-        connect_request.ssid,
-        token.clone().unwrap()
-    );
+
+    // Check have token
+    if connect_request.token.is_empty() {
+        send_response(
+            conn,
+            401,
+            "Unauthorized",
+            b"Unauthorized: Missing token",
+            None,
+        )
+        .await?;
+        return Ok(());
+    }
+    info!("Connecting to SSID: '{}'", connect_request.ssid);
 
     // Check already connect to an AP
     if controller.lock().await.is_connected() {
@@ -359,9 +362,10 @@ where
                             heapless::String::try_from(connect_request.password.as_str())
                                 .unwrap_or_default(),
                         );
-                        set.prov_token = token.clone();
+                        set.prov_token = Some(connect_request.token.clone());
                     })
                     .await;
+                    Timer::after(Duration::from_secs(8)).await;
                     wifi_net::finish_provisioning();
                 }
                 Err(e) => {

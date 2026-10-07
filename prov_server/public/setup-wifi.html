@@ -7,6 +7,14 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <link rel="stylesheet" href="styles.css" />
+    <script>
+      document.documentElement.classList.add(
+        new URLSearchParams(window.location.search).get("colorScheme") ===
+          "dark"
+          ? "dark"
+          : "light",
+      );
+    </script>
     <link rel="shortcut icon" href="favicon.ico" />
     <title>{{pageTitle}}</title>
   </head>
@@ -67,6 +75,7 @@
                 class="wifi-modal-content"
                 method="post"
                 action="#"
+                autocomplete="off"
               >
                 <h3 class="wifi-modal-title">{{connectToWifiNetwork}}</h3>
                 <div>
@@ -85,16 +94,24 @@
                   class="hidden"
                 />
                 <div class="wifi-password-input">
+                  <!-- A text field masked by CSS, not type="password": browsers
+                       (Safari) would offer to generate and save a password for
+                       the website. Becomes one where text can't be masked. -->
                   <input
-                    type="password"
+                    type="text"
                     id="wifi-password"
                     name="wifi-password"
+                    class="masked"
                     placeholder="{{enterWifiPassword}}"
                     required
                     minlength="8"
                     autocomplete="off"
                     autocorrect="off"
                     autocapitalize="off"
+                    spellcheck="false"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
                   />
                   <button
                     id="wifi-password-toggle"
@@ -132,6 +149,54 @@
         clearTimeout(id);
         return response;
       }
+
+      // The LEDTransit app opens this page in a new tab and stays open in its
+      // own: messages to it only go to these origins, and only theirs are
+      // accepted
+      const APP_ORIGINS = ["https://app.ledtransit.com", "http://localhost:3000"];
+
+      const SETUP_TOKEN_KEY = "ledtransit-setup-token";
+
+      // The token comes in the fragment: never sent to (and logged by) the
+      // map's server. Removed from the address bar once read, and kept for
+      // this tab only, so reloading the page still has it.
+      function readSetupToken() {
+        const fromFragment = new URLSearchParams(
+          window.location.hash.slice(1),
+        ).get("tok");
+        if (window.location.hash) {
+          history.replaceState(
+            null,
+            "",
+            window.location.pathname + window.location.search,
+          );
+        }
+        try {
+          if (fromFragment) {
+            sessionStorage.setItem(SETUP_TOKEN_KEY, fromFragment);
+          }
+          return fromFragment || sessionStorage.getItem(SETUP_TOKEN_KEY) || "";
+        } catch {
+          // Storage unavailable (e.g. blocked): only this load has the token
+          return fromFragment || "";
+        }
+      }
+
+      function notifyApp(message) {
+        if (!window.opener) {
+          return false;
+        }
+        for (const origin of APP_ORIGINS) {
+          // Not delivered (and no error) unless the opener has this origin
+          window.opener.postMessage(message, origin);
+        }
+        return true;
+      }
+
+      // Tell the app tab right away that this page loaded (it's reachable):
+      // the script runs once the page is parsed, before the images and styles
+      // are in, which the app doesn't wait for long
+      notifyApp({ type: "ledtransit-setup-ready" });
 
       function scanWifiNetworks() {
         const wifiList = document.getElementById("wifi-list");
@@ -253,10 +318,11 @@
         wifiList.classList.add("disabled");
 
         const forwardUrl = redirectUrl
-          ? `${redirectUrl}?tok=${tok}`
-          : `https://ledtransit.com/en/setup-wifi-complete?tok=${tok}`;
+          ? `${redirectUrl}?tok=${encodeURIComponent(tok)}`
+          : `https://app.ledtransit.com/en/setup-wifi-complete?tok=${encodeURIComponent(tok)}`;
 
-        // Keep trying to connect to internet in case of automatic switchover
+        // Keep trying to connect to internet in case of automatic switchover,
+        // then continue there: unless the app tab took over (see below)
         let maxNumOnlineChecks = 100;
         let onlineCheckInterval = setInterval(() => {
           if (maxNumOnlineChecks-- <= 0) {
@@ -275,19 +341,35 @@
             .catch((error) => {});
         }, 3000);
 
-        fetchWithTimeout(`/api/connect-wifi?tok=${tok}`, {
+        fetchWithTimeout("/api/connect-wifi", {
           // Send credentials to the server
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ ssid, password }),
+          body: JSON.stringify({ ssid, password, token: tok }),
           timeout: 8000,
         })
           .then((response) => {
             if (!response.ok) {
               throw new Error("Failed to submit WiFi credentials");
             }
+
+            // Hand over to the app tab: it waits for the internet and
+            // continues the setup, this tab is no longer needed
+            window.addEventListener("message", (event) => {
+              if (
+                APP_ORIGINS.includes(event.origin) &&
+                event.data?.type === "ledtransit-setup-ack"
+              ) {
+                clearInterval(onlineCheckInterval);
+                notificationBody.textContent = "{{continueInAppTab}}";
+                notificationButton.classList.add("hidden");
+                window.close();
+              }
+            });
+            notifyApp({ type: "ledtransit-setup-done" });
+
             notificationBody.textContent = "{{wifiConnectedSuccessfully}}";
             notificationButton.classList.remove("hidden");
             notificationButton.innerHTML = "{{continue}}";
@@ -384,18 +466,9 @@
         const notification = document.getElementById("notification");
         const notificationBody = document.getElementById("notification-body");
 
-        const tok =
-          new URLSearchParams(window.location.search).get("tok") || "";
+        const tok = readSetupToken();
         const redirectUrl =
           new URLSearchParams(window.location.search).get("redirect") || "";
-        const colorScheme =
-          new URLSearchParams(window.location.search).get("colorScheme") ||
-          "light";
-
-        document.documentElement.classList.add(
-          colorScheme === "dark" ? "dark" : "light",
-        );
-
         if (!tok || tok.length === 0) {
           // Check token set
           notificationBody.textContent = "{{missingToken}}";
@@ -417,16 +490,25 @@
           submitWifiCredentials(tok, redirectUrl);
         };
 
+        // The password is masked by CSS where supported (see the input),
+        // else it's a password field
+        const canMaskText = CSS.supports("-webkit-text-security", "disc");
+        if (!canMaskText) {
+          wifiPasswordInput.classList.remove("masked");
+          wifiPasswordInput.type = "password";
+        }
+
         // Toggle password visibility
         wifiPasswordToggle.onclick = (e) => {
           e.preventDefault();
-          if (wifiPasswordInput.type === "password") {
-            wifiPasswordInput.type = "text";
-            wifiPasswordToggle.classList.add("active");
+          let isVisible;
+          if (canMaskText) {
+            isVisible = !wifiPasswordInput.classList.toggle("masked");
           } else {
-            wifiPasswordInput.type = "password";
-            wifiPasswordToggle.classList.remove("active");
+            isVisible = wifiPasswordInput.type === "password";
+            wifiPasswordInput.type = isVisible ? "text" : "password";
           }
+          wifiPasswordToggle.classList.toggle("active", isVisible);
           wifiPasswordInput.focus();
         };
 

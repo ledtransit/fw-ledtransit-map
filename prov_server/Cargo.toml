@@ -7,5 +7,10 @@ authors = ["Tim Holzhey <info@ledtransit.com>"]
 
 [dependencies]
 minify-html = "0.18.1"
+# Same versions minify-html uses, to strip the JS comments it keeps
+oxc_allocator = "0.95.0"
+oxc_codegen = "0.95.0"
+oxc_parser = "0.95.0"
+oxc_span = "0.95.0"
 regex = "1.12.3"
 serde_json = "1.0.149"

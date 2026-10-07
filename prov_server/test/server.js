@@ -45,5 +45,5 @@ app.post("/api/identify", async (req, res) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server running at http://${host}:${port}/setup-wifi.html?tok=abc123`);
+  console.log(`Server running at http://${host}:${port}/setup-wifi.html#tok=abc123`);
 });
