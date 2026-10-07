@@ -114,7 +114,7 @@ pub mod persist {
                     end_time_of_day_seconds: 18 * 60 * 60,   // 6:00 PM
                     weekdays_bitmask: 0b01111111,            // Su-Sa
                 },
-                auto_firmware_update_enabled: true,
+                auto_firmware_update_enabled: false,
                 min_delay_minutes: CONFIG.cfg.min_delay_minutes,
                 max_delay_minutes: CONFIG.cfg.max_delay_minutes,
                 min_speed_kmph: CONFIG.cfg.min_speed_kmph,
