@@ -564,7 +564,6 @@ async fn handle_proto_message(payload: Payload, payload_len: usize) -> Result<()
         Payload::Echo(echo) => {
             // Send back the same echo message
             send_echo(echo);
-            send_telemetry();
         }
         Payload::TransitData(transit_data) => {
             // On transit data update: Update renderer with new data
