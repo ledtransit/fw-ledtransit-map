@@ -14,7 +14,9 @@ use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
 };
 use embassy_time::{Duration, Instant, TimeoutError, Timer, with_timeout};
-use embedded_io_async::{ErrorKind, Write};
+#[cfg(ssl_enabled)]
+use embedded_io_async::ErrorKind;
+use embedded_io_async::Write;
 use envparse::parse_env;
 use esp_hal::rng::Rng;
 use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls};
@@ -89,6 +91,14 @@ pub enum WsClientError {
     Timeout(TimeoutError),
     DataError,
     AuthFailed,
+    /// The gateway refused a request (other than authentication)
+    ServerRefused,
+    /// No account has this device (any more): set up again
+    Unlinked,
+    /// The device is blocked from connecting
+    Revoked,
+    /// The device keys aren't burned: not provisioned at production
+    NoDeviceKeys,
     RestartProvisioning,
     FactoryReset,
     #[cfg(ssl_enabled)]
@@ -119,6 +129,14 @@ async fn ws_client_task(
         sta_stack.wait_link_up().await;
         sta_stack.wait_config_up().await;
 
+        // Provisioning still finishing: the link is about to drop, a
+        // connection started over it now would fail
+        if wifi_net::is_provisioning() {
+            Timer::after(Duration::from_millis(250)).await;
+            continue;
+        }
+        info!("Connecting to gateway");
+
         let is_updating = app_settings::session::get_settings()
             .await
             .updating_firmware;
@@ -135,6 +153,21 @@ async fn ws_client_task(
                     WsClientError::AuthFailed => {
                         trace::err!("WebSocket authentication failed");
                         leds::set_status(LedStatus::AuthError);
+                    }
+                    WsClientError::Revoked => {
+                        trace::err!("Device is blocked from connecting");
+                        leds::set_status(LedStatus::AuthError);
+                    }
+                    WsClientError::NoDeviceKeys => {
+                        trace::err!("Device keys missing, can't authenticate");
+                        leds::set_status(LedStatus::AuthError);
+                    }
+                    WsClientError::Unlinked => {
+                        info!("Device no longer linked to an account, restarting WiFi provisioning");
+                        wifi_net::start_provisioning().await;
+                        if sta_stack.is_link_up() {
+                            sta_stack.wait_config_down().await;
+                        }
                     }
                     WsClientError::RestartProvisioning => {
                         info!("Restarting WiFi provisioning as requested by WS user");
@@ -157,8 +190,11 @@ async fn ws_client_task(
                         continue;
                     }
                     WsClientError::WsError(WsError::Invalid)
-                    | WsClientError::WsError(WsError::Io(SessionError::Io(ErrorKind::Other)))
                     | WsClientError::Timeout(TimeoutError) => {} // ignore
+                    // Only a TLS session error with TLS (builds without it, e.g. for a
+                    // local gateway, would not compile)
+                    #[cfg(ssl_enabled)]
+                    WsClientError::WsError(WsError::Io(SessionError::Io(ErrorKind::Other))) => {} // ignore
                     _ => {
                         trace::err!("WebSocket connection error: {:?}", e);
                         leds::set_status(LedStatus::ServerError);
@@ -212,12 +248,12 @@ async fn run(
         client::Connection::<Tcp, HTTP_MAX_NUM_HEADERS>::new(&mut ws_rx_buf, &tcp, socket_addr)
     });
 
-    // Check if need to authenticate first using provisioning token
+    // Just set up: claim the device into its user's account first
     if let Some(prov_token) = app_settings::persist::get_settings().await.prov_token {
-        match auth_client::provision_authenticate(&mut conn, &prov_token, host).await {
+        match auth_client::claim(&mut conn, &prov_token, host).await {
             Ok(()) => {} // Continue to WS authentication
             Err(WsClientError::AuthFailed) => {
-                warn!("Provisioning authentication failed, clearing provisioning token");
+                warn!("Claim refused, clearing provisioning token");
                 app_settings::persist::update_settings(|set| {
                     set.prov_token = None;
                 })
@@ -228,18 +264,14 @@ async fn run(
         }
     }
 
-    // Check if access token is present
-    let access_token = match app_settings::persist::get_settings().await.access_token {
-        Some(token) => token,
-        None => {
-            error!("No access token stored, cannot establish WebSocket connection");
-            return Err(WsClientError::AuthFailed);
-        }
-    };
+    if !app_settings::persist::get_settings().await.claimed {
+        error!("Device not claimed, cannot establish WebSocket connection");
+        return Err(WsClientError::Unlinked);
+    }
 
-    // Perform WebSocket upgrade and authentication
+    // Perform WebSocket upgrade, authenticated by the device keys
     let mut rng = Rng::new();
-    auth_client::websocket_authenticate(host, &mut conn, &access_token, &mut rng).await?;
+    auth_client::websocket_authenticate(host, &mut conn, &mut rng).await?;
     info!("WebSocket connection established");
 
     // Get underlying raw socket

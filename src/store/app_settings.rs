@@ -57,14 +57,15 @@ pub mod persist {
     use super::*;
 
     const SETTINGS_MAGIC: u32 = 0xA562E1B;
-    const SETTINGS_VERSION: u32 = 1;
+    // 2: the access token replaced by `claimed` (devices authenticate with
+    // their device keys)
+    const SETTINGS_VERSION: u32 = 2;
     const SETTINGS_MAX_BYTE_SIZE: usize = 1024;
 
     // Environment overrides
     const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
     const WIFI_PASSWORD: Option<&str> = option_env!("WIFI_PASSWORD");
     const PROV_TOKEN: Option<&str> = option_env!("PROV_TOKEN");
-    const API_TOKEN: Option<&str> = option_env!("API_TOKEN");
 
     #[derive(Serialize, Deserialize, Clone)]
     pub struct PersistSettings {
@@ -73,7 +74,7 @@ pub mod persist {
         pub wifi_ssid: Option<heapless::String<32>>,
         pub wifi_password: Option<heapless::String<64>>,
         pub prov_token: Option<heapless::String<64>>, // Short-lived provisioning used for initial WiFi setup identification with the API
-        pub access_token: Option<heapless::String<64>>, // Permanent access token obtained after provisioning, used for authenticating API requests
+        pub claimed: bool, // Claimed into its user's account by the gateway: connects with its device keys from then on
         pub config: DeviceConfig, // Device configuration settings synced with server user settings
     }
 
@@ -90,7 +91,7 @@ pub mod persist {
             wifi_ssid: None,
             wifi_password: None,
             prov_token: None,
-            access_token: None,
+            claimed: false,
             config: DeviceConfig {
                 brightness_percent: 25,
                 current_limit_ma: 1000,
@@ -146,11 +147,11 @@ pub mod persist {
             self.wifi_ssid = None;
             self.wifi_password = None;
             self.prov_token = None;
-            self.access_token = None;
+            self.claimed = false;
         }
 
-        pub fn has_credentials_and_is_authenticated(&self) -> bool {
-            self.wifi_ssid.is_some() && self.wifi_password.is_some() && self.access_token.is_some()
+        pub fn has_credentials_and_is_claimed(&self) -> bool {
+            self.wifi_ssid.is_some() && self.wifi_password.is_some() && self.claimed
         }
     }
 
@@ -212,10 +213,6 @@ pub mod persist {
         if let Some(token) = PROV_TOKEN {
             settings.prov_token = heapless::String::try_from(token).ok();
             warn!("Overriding provisioning token from environment variable");
-        }
-        if let Some(token) = API_TOKEN {
-            settings.access_token = heapless::String::try_from(token).ok();
-            warn!("Overriding API access token from environment variable");
         }
 
         info!("Settings loaded from flash (v{})", settings.version);

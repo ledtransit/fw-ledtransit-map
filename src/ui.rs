@@ -114,7 +114,7 @@ pub async fn handle_ui_forever() {
                         leds::wait_pixels_animation_complete().await;
                         let is_provisioned = app_settings::persist::get_settings()
                             .await
-                            .has_credentials_and_is_authenticated();
+                            .has_credentials_and_is_claimed();
                         if !is_provisioned {
                             leds::set_pixels(LedPixels::DemoMode).await;
                         }

@@ -67,8 +67,6 @@ struct BuildCommand {
         help = "Provisioning token override to use during provisioning"
     )]
     provisioning_token: Option<String>,
-    #[arg(long = "api-token", help = "API token override to use for API access")]
-    api_token: Option<String>,
     #[arg(
         long = "gw-host",
         help = "Gateway server host override to use for API access [default: built-in]"
@@ -426,10 +424,7 @@ fn build_firmware(cmd: BuildCommand, run: bool) -> Result<()> {
             m.insert("WIFI_PASSWORD", pw);
         }
         if let Some(token) = cmd.provisioning_token {
-            m.insert("PROVISIONING_TOKEN", token);
-        }
-        if let Some(api_token) = cmd.api_token {
-            m.insert("API_TOKEN", api_token);
+            m.insert("PROV_TOKEN", token);
         }
         if let Some(host) = cmd.gateway_host {
             m.insert("GATEWAY_HOST", host);

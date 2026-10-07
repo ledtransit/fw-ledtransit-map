@@ -145,8 +145,7 @@ async fn renderer_task() {
         let begin_frame_time = Instant::now();
         let setup_complete = app_settings::persist::get_settings()
             .await
-            .access_token
-            .is_some();
+            .claimed;
 
         if setup_complete {
             trace::flush_errors();

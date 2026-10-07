@@ -13,7 +13,9 @@ extern crate serde;
 mod automation;
 mod buttons;
 mod config;
+mod device_auth;
 mod display;
+mod factory_serial;
 mod net;
 mod store;
 mod time;
@@ -63,6 +65,11 @@ async fn main(spawner: Spawner) -> ! {
     // Init flash storage
     let flash_store = store::init(peripherals.FLASH).await;
 
+    // Device keys, for authenticating to the gateway (and the production
+    // self-test over USB serial)
+    device_auth::init(peripherals.HMAC).await;
+    factory_serial::spawn(spawner, peripherals.USB_DEVICE);
+
     // Spawn Embassy tasks taking peripheral ownership as needed
     leds::spawn(spawner, peripherals.GPIO1.into(), peripherals.RMT);
     buttons::spawn(spawner, peripherals.GPIO3.into(), Button::Up);
@@ -90,12 +97,12 @@ async fn main(spawner: Spawner) -> ! {
     // Start WiFi provisioning if needed, otherwise connect to WiFi AP
     let is_provisioned = app_settings::persist::get_settings()
         .await
-        .has_credentials_and_is_authenticated();
+        .has_credentials_and_is_claimed();
     if is_provisioned {
         info!("WiFi is provisioned, attempting to connect to AP");
         wifi_net::connect_ap();
     } else {
-        info!("No WiFi credentials or API token stored, entering provisioning mode");
+        info!("No WiFi credentials or not claimed, entering provisioning mode");
         wifi_net::start_provisioning().await;
     }
 

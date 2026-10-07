@@ -1,4 +1,9 @@
-use core::{ffi::CStr, net::Ipv4Addr, str::FromStr};
+use core::{
+    ffi::CStr,
+    net::Ipv4Addr,
+    str::FromStr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
@@ -34,6 +39,17 @@ const AP_SOCKET_COUNT: usize =
 const STA_SOCKET_COUNT: usize = 4;
 
 static WIFI_NET_SIGNAL: Signal<CriticalSectionRawMutex, WifiNetEvent> = Signal::new();
+
+/// Set from the start of provisioning until the WiFi is connected again after
+/// it: finishing it reconfigures the WiFi (station only), which drops the link
+/// the station connected over during provisioning.
+static PROVISIONING: AtomicBool = AtomicBool::new(false);
+
+/// Whether provisioning is still going on: the station's link (if up) is about
+/// to drop, so nothing should connect over it yet.
+pub fn is_provisioning() -> bool {
+    PROVISIONING.load(Ordering::Relaxed)
+}
 
 pub const CA_BUNDLE: &CStr = match CStr::from_bytes_with_nul(
     concat!(include_str!("../../assets/certs/ca-bundle.pem"), "\0").as_bytes(),
@@ -186,6 +202,7 @@ async fn wifi_net_task(
         match WIFI_NET_SIGNAL.wait().await {
             WifiNetEvent::StartProvisioning => {
                 info!("Starting WiFi provisioning mode");
+                PROVISIONING.store(true, Ordering::Relaxed);
                 leds::set_status(LedStatus::Pairing);
 
                 // Check if already connected to AP
@@ -228,6 +245,8 @@ async fn wifi_net_task(
 
                 // Check if already connected to AP
                 if controller.lock().await.is_connected() {
+                    info!("WiFi already connected");
+                    PROVISIONING.store(false, Ordering::Relaxed);
                     continue;
                 }
 
@@ -235,6 +254,7 @@ async fn wifi_net_task(
                 match controller.lock().await.connect_async().await {
                     Ok(_) => {
                         info!("WiFi connected successfully");
+                        PROVISIONING.store(false, Ordering::Relaxed);
                         continue;
                     }
                     Err(e) => {
@@ -259,7 +279,7 @@ async fn wifi_conn_task(controller: &'static SharedWifiController) {
         // Wifi re-connection loop (without blocking controller mutex)
         let should_connect_ap = app_settings::persist::get_settings()
             .await
-            .has_credentials_and_is_authenticated();
+            .has_credentials_and_is_claimed();
         let is_connected = controller.lock().await.is_connected();
 
         if should_connect_ap && !is_connected {

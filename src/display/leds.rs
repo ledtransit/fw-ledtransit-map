@@ -431,7 +431,7 @@ pub async fn set_status_led_from_session() {
     let settings = app_settings::session::get_settings().await;
     let is_provisioned = app_settings::persist::get_settings()
         .await
-        .has_credentials_and_is_authenticated();
+        .has_credentials_and_is_claimed();
     if !is_provisioned {
         return;
     }

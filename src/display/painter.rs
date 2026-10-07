@@ -28,8 +28,7 @@ async fn draw_task() {
         let begin_frame_time = Instant::now();
         let setup_complete = app_settings::persist::get_settings()
             .await
-            .access_token
-            .is_some();
+            .claimed;
         let settings = app_settings::session::get_settings().await;
 
         // Only draw to the pixel buffer if the WiFi setup is complete, we are not in LED testing mode and light is turn on
