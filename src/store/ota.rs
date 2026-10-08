@@ -181,14 +181,23 @@ async fn run(
                 OTA_SIGNAL.signal(OtaEvent::StartUpdate(update));
             }
             OtaEvent::StartUpdate(update) => {
-                // Check version must be different
-                if update.firmware_version_major == CONFIG.fw_version.major
-                    && update.firmware_version_minor == CONFIG.fw_version.minor
-                    && update.firmware_version_patch == CONFIG.fw_version.patch
-                    && !CONFIG.fw_version.beta
+                let update_version = (
+                    update.firmware_version_major,
+                    update.firmware_version_minor,
+                    update.firmware_version_patch,
+                );
+                let installed_version = (
+                    CONFIG.fw_version.major,
+                    CONFIG.fw_version.minor,
+                    CONFIG.fw_version.patch,
+                );
+                // Check version must be newer: no downgrades allowed
+                // Exception: Beta firmware allows updating to the same version
+                if update_version < installed_version
+                    || (update_version == installed_version && !CONFIG.fw_version.beta)
                 {
                     trace::wrn!(
-                        "OTA update requested for same firmware version v{}.{}.{}",
+                        "OTA update refused: v{}.{}.{} isn't newer than installed",
                         update.firmware_version_major,
                         update.firmware_version_minor,
                         update.firmware_version_patch
