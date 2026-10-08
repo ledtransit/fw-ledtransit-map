@@ -295,6 +295,18 @@ where
 {
     info!("API: Connect to WiFi");
 
+    // JSON only, prevents foreign origin CORS preflight
+    let is_json = conn
+        .headers()?
+        .headers
+        .content_type()
+        .and_then(|content_type| content_type.split(';').next())
+        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"));
+    if !is_json {
+        send_response(conn, 415, "Unsupported Media Type", &[], None).await?;
+        return Ok(());
+    }
+
     // Read request body
     let mut body_buf = [0u8; 512];
     let body_len = conn
