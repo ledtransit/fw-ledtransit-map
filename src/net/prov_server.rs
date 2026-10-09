@@ -31,6 +31,9 @@ struct StaticFile {
     content: &'static [u8],
     mime_type: &'static str,
     locale: &'static str,
+    /// Stored gzip compressed (by the prov_server tool), served as is with
+    /// Content-Encoding: gzip
+    gzip: bool,
 }
 
 macro_rules! asset_path {
@@ -45,33 +48,45 @@ const DEFAULT_LOCALE: &str = "en";
 const STATIC_FILES: &[StaticFile] = &[
     StaticFile {
         path: "/setup-wifi",
-        content: include_bytes!(asset_path!("setup-wifi+en.html")),
+        content: include_bytes!(asset_path!("setup-wifi+en.html.gz")),
         mime_type: "text/html",
         locale: "en",
+        gzip: true,
     },
     StaticFile {
         path: "/setup-wifi",
-        content: include_bytes!(asset_path!("setup-wifi+de.html")),
+        content: include_bytes!(asset_path!("setup-wifi+de.html.gz")),
         mime_type: "text/html",
         locale: "de",
+        gzip: true,
     },
     StaticFile {
         path: "/styles.css",
-        content: include_bytes!(asset_path!("styles.css")),
+        content: include_bytes!(asset_path!("styles.css.gz")),
         mime_type: "text/css",
         locale: DEFAULT_LOCALE,
+        gzip: true,
     },
     StaticFile {
         path: "/favicon.ico",
         content: include_bytes!(asset_path!("favicon.ico")),
         mime_type: "image/x-icon",
         locale: DEFAULT_LOCALE,
+        gzip: false,
+    },
+    StaticFile {
+        path: "/favicon.svg",
+        content: include_bytes!(asset_path!("favicon.svg.gz")),
+        mime_type: "image/svg+xml",
+        locale: DEFAULT_LOCALE,
+        gzip: true,
     },
     StaticFile {
         path: "/background.webp",
         content: include_bytes!(asset_path!("background.webp")),
         mime_type: "image/webp",
         locale: DEFAULT_LOCALE,
+        gzip: false,
     },
 ];
 
@@ -121,14 +136,53 @@ async fn send_response<T, const N: usize>(
 where
     T: Read + Write,
 {
+    send_response_encoded(conn, status_code, status_message, content, mime_type, None).await
+}
+
+/// Serves a static file, with its body when `with_body` (GET, not HEAD).
+async fn send_static_file<T, const N: usize>(
+    conn: &mut Connection<'_, T, N>,
+    file: &StaticFile,
+    with_body: bool,
+) -> Result<(), Error<T::Error>>
+where
+    T: Read + Write,
+{
+    let content = if with_body { file.content } else { &[] };
+    let content_encoding = file.gzip.then_some("gzip");
+    send_response_encoded(
+        conn,
+        200,
+        "OK",
+        content,
+        Some(file.mime_type),
+        content_encoding,
+    )
+    .await
+}
+
+async fn send_response_encoded<T, const N: usize>(
+    conn: &mut Connection<'_, T, N>,
+    status_code: u16,
+    status_message: &str,
+    content: &[u8],
+    mime_type: Option<&str>,
+    content_encoding: Option<&str>,
+) -> Result<(), Error<T::Error>>
+where
+    T: Read + Write,
+{
     let content_length_str =
         heapless::format!(20; "{}", content.len()).expect("Failed to format content length");
-    let mut headers = heapless::Vec::<(&str, &str), 2>::new();
+    let mut headers = heapless::Vec::<(&str, &str), 3>::new();
     headers
         .push(("Content-Length", content_length_str.as_str()))
         .unwrap();
     if let Some(mime) = mime_type {
         headers.push(("Content-Type", mime)).unwrap();
+    }
+    if let Some(encoding) = content_encoding {
+        headers.push(("Content-Encoding", encoding)).unwrap();
     }
     conn.initiate_response(status_code, Some(status_message), &headers)
         .await?;
@@ -185,7 +239,7 @@ impl Handler for HttpHandler {
             Method::Get => {
                 // Serve static file
                 if let Some(file) = get_static_file_with_locale(url_path, locale) {
-                    send_response(conn, 200, "OK", file.content, Some(file.mime_type)).await?;
+                    send_static_file(conn, file, true).await?;
                 } else {
                     send_response(conn, 404, "Not Found", &[], None).await?;
                 }
@@ -193,7 +247,7 @@ impl Handler for HttpHandler {
             Method::Head => {
                 // Serve static file without body
                 if let Some(file) = get_static_file_with_locale(url_path, locale) {
-                    send_response(conn, 200, "OK", &[], Some(file.mime_type)).await?;
+                    send_static_file(conn, file, false).await?;
                 } else {
                     send_response(conn, 404, "Not Found", &[], None).await?;
                 }

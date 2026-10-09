@@ -6,6 +6,7 @@ version = "0.0.1"
 authors = ["Tim Holzhey <info@ledtransit.com>"]
 
 [dependencies]
+flate2 = "1.1.9"
 minify-html = "0.18.1"
 # Same versions minify-html uses, to strip the JS comments it keeps
 oxc_allocator = "0.95.0"

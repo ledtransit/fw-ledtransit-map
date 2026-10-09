@@ -1,8 +1,10 @@
+use std::io::Write;
+
 use minify_html::{Cfg, minify};
 
 fn main() {
     // 1. Copy files to output dir
-    let files_to_copy = ["favicon.ico", "background.webp", "setup-wifi.html", "styles.css"];
+    let files_to_copy = ["favicon.ico", "favicon.svg", "background.webp", "setup-wifi.html", "styles.css"];
 
     // 2. Translate files in output dir
     let files_to_translate = [
@@ -13,11 +15,16 @@ fn main() {
         "lang/de.json",
     ];
 
-    // 3. Minify files in output dir
+    // 3. Minify and gzip files in output dir (served with Content-Encoding: gzip)
     let files_to_minify = [
         "setup-wifi+en.html",
         "setup-wifi+de.html",
         "styles.css",
+    ];
+
+    // 4. Gzip files in output dir that are minified already
+    let files_to_gzip = [
+        "favicon.svg",
     ];
 
     let input_dir = "public";
@@ -98,12 +105,35 @@ fn main() {
         let minified_content = minify(input_content.as_bytes(), &cfg);
         let minified_content = strip_script_comments(&String::from_utf8(minified_content).unwrap());
 
-        // Write the minified content to the output file
-        std::fs::write(&output_path, minified_content)
-            .unwrap_or_else(|_| panic!("Failed to write file: {}", output_path));
+        let output_path = write_gzip(&output_path, minified_content.as_bytes());
 
-        println!("Minified {} -> {}", input_path, output_path);
+        println!("Minified and compressed {} -> {}", input_path, output_path);
     }
+
+    // Gzip files in output directory
+    for file_path in files_to_gzip {
+        let input_path = format!("{}/{}", output_dir, file_path);
+
+        let input_content = std::fs::read(&input_path)
+            .unwrap_or_else(|_| panic!("Failed to read file: {}", input_path));
+        let output_path = write_gzip(&input_path, &input_content);
+
+        println!("Compressed {} -> {}", input_path, output_path);
+    }
+}
+
+/// Writes the content gzip compressed to `<path>.gz`, in place of the file at
+/// `path`. Every browser accepts gzip, and the firmware's flash is tight.
+fn write_gzip(path: &str, content: &[u8]) -> String {
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(content).unwrap();
+    let compressed_content = encoder.finish().unwrap();
+
+    let output_path = format!("{}.gz", path);
+    std::fs::write(&output_path, compressed_content)
+        .unwrap_or_else(|_| panic!("Failed to write file: {}", output_path));
+    std::fs::remove_file(path).unwrap_or_else(|_| panic!("Failed to remove uncompressed file: {}", path));
+    output_path
 }
 
 // minify-html keeps JS comments (no option to drop them), so reprint each
