@@ -14,6 +14,7 @@ use crate::{
     store::{app_settings, transit_data},
     time,
     util::{lerp, rgb8_brightness, rgb8_max},
+    watchdog,
 };
 
 const PAINTER_FPS: u32 = 30;
@@ -26,6 +27,7 @@ pub fn spawn(spawner: embassy_executor::Spawner) {
 async fn draw_task() {
     loop {
         let begin_frame_time = Instant::now();
+        watchdog::heartbeat();
         let setup_complete = app_settings::persist::get_settings()
             .await
             .claimed;

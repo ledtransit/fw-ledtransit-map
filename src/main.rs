@@ -22,6 +22,7 @@ mod time;
 mod trace;
 mod ui;
 mod util;
+mod watchdog;
 
 use crate::{
     buttons::Button,
@@ -77,6 +78,7 @@ async fn main(spawner: Spawner) -> ! {
     buttons::spawn(spawner, peripherals.GPIO4.into(), Button::Down);
     renderer::spawn(spawner);
     painter::spawn(spawner);
+    watchdog::spawn(spawner, peripherals.LPWR);
     wifi_net::spawn(spawner, peripherals.WIFI, peripherals.SHA, flash_store).await;
     app_settings::spawn(spawner, flash_store);
 
@@ -119,7 +121,8 @@ async fn main(spawner: Spawner) -> ! {
         }
     }
 
-    // Initialize boot partition, mark OTA valid
+    // Read the boot partition state (a new image is marked valid once it
+    // reached the gateway)
     ota::init_boot_partition();
 
     // Handle buttons UI in main task forever
