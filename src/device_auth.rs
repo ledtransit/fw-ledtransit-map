@@ -149,7 +149,13 @@ pub async fn connect_proof(
 ) -> Result<Proof, DeviceAuthError> {
     hmac(
         slot,
-        &[CONNECT_LABEL, &[0], nonce.as_bytes(), &[0], hardware_id.as_bytes()],
+        &[
+            CONNECT_LABEL,
+            &[0],
+            nonce.as_bytes(),
+            &[0],
+            hardware_id.as_bytes(),
+        ],
     )
     .await
 }

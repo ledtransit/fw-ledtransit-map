@@ -1,3 +1,9 @@
+# `cargo build` builds the firmware for the ESP32-C3 (use `cargo xtask build`
+# to build it for a product). The tools build for the host (see xtask and
+# prov_server)
+[build]
+target = "riscv32imc-unknown-none-elf"
+
 [target.riscv32imc-unknown-none-elf]
 runner = "probe-rs run --chip=esp32c3 --preverify --always-print-stacktrace --no-location --catch-hardfault --idf-partition-table=partitions.csv --idf-bootloader=assets/boot_image/bootloader.bin"
 rustflags = [
@@ -15,4 +21,4 @@ SSL_ENABLED="true"
 build-std = ["alloc", "core"]
 
 [alias]
-xtask = "run --manifest-path ./xtask/Cargo.toml --"
+xtask = "run --manifest-path ./xtask/Cargo.toml --target host-tuple --"

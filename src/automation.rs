@@ -2,108 +2,36 @@
 use defmt::info;
 
 use crate::{
-    app_settings::{self},
-    leds::{self, LedStatus},
+    display::leds::{self, LedPixels, LedStatus},
     net::ws_client::{self, client_proto::TimerSettings},
+    store::app_settings,
     time,
 };
 
-// Given the current local time and timer settings, determine if the day-night timer should be driving the lights on
-fn is_day_night_timer_driving_light_on(
-    local_time_of_day_seconds: u32,
-    local_weekday_number: u32,
-    timer_settings: &TimerSettings,
-) -> bool {
-    // Check day-night timer not enabled
-    if !timer_settings.enabled {
-        return false;
-    }
+const SECONDS_PER_DAY: u32 = 86400;
 
-    // Is the current day of the week enabled
-    let is_today_weekday_enabled =
-        (timer_settings.weekdays_bitmask & (1 << local_weekday_number)) != 0;
-    let is_yesterday_weekday_enabled =
-        (timer_settings.weekdays_bitmask & (1 << ((local_weekday_number + 6) % 7))) != 0;
-
-    // Special case: End time is less than start time, meaning the active period wraps to the next day (e.g. 6pm-6am)
-    let does_end_time_wrap_next_day =
-        timer_settings.end_time_of_day_seconds <= timer_settings.start_time_of_day_seconds;
-
-    // Current time is within active period today
-    let is_normal_active = !does_end_time_wrap_next_day
-        && is_today_weekday_enabled
-        && local_time_of_day_seconds >= timer_settings.start_time_of_day_seconds
-        && local_time_of_day_seconds < timer_settings.end_time_of_day_seconds;
-
-    // Current time is within active period that wraps to the next day
-    let is_wrapping_active = does_end_time_wrap_next_day
-        && ((is_today_weekday_enabled
-            && local_time_of_day_seconds >= timer_settings.start_time_of_day_seconds)
-            || (is_yesterday_weekday_enabled
-                && local_time_of_day_seconds < timer_settings.end_time_of_day_seconds));
-
-    is_normal_active || is_wrapping_active
-}
-
-// Given the current local time, sunrise/sunset times and day/night brightness levels, calculate the brightness level approximated by the the sun angle
-fn calc_brightness_percent_from_sunlight(
-    local_time_of_day_seconds: u32,
-    local_sunrise_time_of_day_seconds: u32,
-    local_sunset_time_of_day_seconds: u32,
-    day_brightness_percent: u8,
-    night_brightness_percent: u8,
-) -> u8 {
-    let does_sunset_wrap_next_day =
-        local_sunset_time_of_day_seconds <= local_sunrise_time_of_day_seconds;
-    let is_day_time = if does_sunset_wrap_next_day {
-        local_time_of_day_seconds >= local_sunrise_time_of_day_seconds
-            || local_time_of_day_seconds < local_sunset_time_of_day_seconds
-    } else {
-        local_time_of_day_seconds >= local_sunrise_time_of_day_seconds
-            && local_time_of_day_seconds < local_sunset_time_of_day_seconds
-    };
-    if !is_day_time {
-        return night_brightness_percent;
-    }
-
-    let day_length_seconds = if does_sunset_wrap_next_day {
-        86400 - local_sunrise_time_of_day_seconds + local_sunset_time_of_day_seconds
-    } else {
-        local_sunset_time_of_day_seconds - local_sunrise_time_of_day_seconds
-    };
-    let seconds_since_sunrise = if local_time_of_day_seconds >= local_sunrise_time_of_day_seconds {
-        local_time_of_day_seconds - local_sunrise_time_of_day_seconds
-    } else {
-        86400 - local_sunrise_time_of_day_seconds + local_time_of_day_seconds
-    };
-    let sun_path_unit = (seconds_since_sunrise as f32) / (day_length_seconds as f32);
-    let sun_angle_unit = 4.0 * sun_path_unit * (1.0 - sun_path_unit); // cheap approximation of sin(pi*x)
-    let brightness_percent = sun_angle_unit
-        * ((day_brightness_percent - night_brightness_percent) as f32)
-        + (night_brightness_percent as f32);
-    brightness_percent as u8
+pub async fn step() {
+    drive_day_night_timer_light_state().await;
+    drive_sunlight_auto_brightness().await;
 }
 
 async fn drive_day_night_timer_light_state() {
     let session_settings = app_settings::session::get_settings().await;
     let persist_settings = app_settings::persist::get_settings().await;
-
     if !session_settings.is_time_synced {
-        return; // Wait for server time sync first
+        return;
     }
 
-    let local_time_of_day_seconds = time::get_local_seconds_since_midnight().await;
-    let local_weekday_number = time::get_local_weekday_number().await;
+    let timer_settings = &persist_settings.config.timer_settings;
     let is_timer_driving_on = is_day_night_timer_driving_light_on(
-        local_time_of_day_seconds,
-        local_weekday_number,
-        &persist_settings.config.timer_settings,
+        time::get_local_seconds_since_midnight().await,
+        time::get_local_weekday_number().await,
+        timer_settings,
     );
-    let timer_enabled = persist_settings.config.timer_settings.enabled;
 
-    // Clear manual light on/off override if day-night timer state matches override or timer not enabled
+    // A manual light override ends once the timer agrees with it, or without a timer
     if let Some(light_on_override) = session_settings.light_on_override
-        && (light_on_override == is_timer_driving_on || !timer_enabled)
+        && (light_on_override == is_timer_driving_on || !timer_settings.enabled)
     {
         app_settings::session::update_settings_changed(|set| {
             set.light_on_override = None;
@@ -111,70 +39,56 @@ async fn drive_day_night_timer_light_state() {
         .await;
     }
 
-    // Drive light on/off state from day-night timer if enabled and no override is set
-    if timer_enabled
-        && session_settings.light_on != is_timer_driving_on
-        && session_settings.light_on_override.is_none()
+    if !timer_settings.enabled
+        || session_settings.light_on == is_timer_driving_on
+        || session_settings.light_on_override.is_some()
     {
-        info!(
-            "Day-night timer changing light on/off state to {}",
-            is_timer_driving_on
-        );
-        if !is_timer_driving_on {
-            leds::set_status(LedStatus::TimerOff);
-            leds::set_pixels(leds::LedPixels::FadeOut).await;
-            leds::wait_pixels_animation_complete().await;
-        } else {
-            leds::set_status(LedStatus::Ok);
-        }
-        if app_settings::session::update_settings_changed(|set| {
-            set.light_on = is_timer_driving_on;
-            set.night_timer_active = !is_timer_driving_on;
-        })
-        .await
-        {
-            ws_client::send_status();
-        }
+        return;
+    }
+
+    info!(
+        "Day-night timer changing light on/off state to {}",
+        is_timer_driving_on
+    );
+    if is_timer_driving_on {
+        leds::set_status(LedStatus::Ok);
+    } else {
+        leds::set_status(LedStatus::TimerOff);
+        leds::set_pixels(LedPixels::FadeOut).await;
+        leds::wait_pixels_animation_complete().await;
+    }
+    let changed = app_settings::session::update_settings_changed(|set| {
+        set.light_on = is_timer_driving_on;
+        set.night_timer_active = !is_timer_driving_on;
+    })
+    .await;
+    if changed {
+        ws_client::send_status();
     }
 }
 
 async fn drive_sunlight_auto_brightness() {
     let session_settings = app_settings::session::get_settings().await;
     let persist_settings = app_settings::persist::get_settings().await;
-
     if !session_settings.is_time_synced {
-        return; // Wait for server time sync first
+        return;
     }
 
     let local_time_of_day_seconds = time::get_local_seconds_since_midnight().await;
-    let local_sunrise_time_of_day_seconds = session_settings.local_sunrise_time_of_day_seconds;
-    let local_sunset_time_of_day_seconds = session_settings.local_sunset_time_of_day_seconds;
-    let day_brightness_percent = persist_settings
-        .config
-        .sunlight_auto_brightness
-        .day_brightness_percent as u8;
-    let night_brightness_percent = persist_settings
-        .config
-        .sunlight_auto_brightness
-        .night_brightness_percent as u8;
-    let auto_brightness_enabled = persist_settings.config.sunlight_auto_brightness.enabled;
-
-    let brightness_percent_opt = if auto_brightness_enabled {
-        Some(calc_brightness_percent_from_sunlight(
+    let auto_brightness = &persist_settings.config.sunlight_auto_brightness;
+    let brightness_percent = auto_brightness.enabled.then(|| {
+        calc_brightness_percent_from_sunlight(
             local_time_of_day_seconds,
-            local_sunrise_time_of_day_seconds,
-            local_sunset_time_of_day_seconds,
-            day_brightness_percent,
-            night_brightness_percent,
-        ))
-    } else {
-        None
-    };
+            session_settings.local_sunrise_time_of_day_seconds,
+            session_settings.local_sunset_time_of_day_seconds,
+            auto_brightness.day_brightness_percent as u8,
+            auto_brightness.night_brightness_percent as u8,
+        )
+    });
 
-    // Update session brightness percent if changed
-    if brightness_percent_opt != session_settings.auto_brightness_percent
+    if brightness_percent != session_settings.auto_brightness_percent
         && app_settings::session::update_settings_changed(|set| {
-            set.auto_brightness_percent = brightness_percent_opt;
+            set.auto_brightness_percent = brightness_percent;
         })
         .await
     {
@@ -182,7 +96,67 @@ async fn drive_sunlight_auto_brightness() {
     }
 }
 
-pub async fn step() {
-    drive_day_night_timer_light_state().await;
-    drive_sunlight_auto_brightness().await;
+fn is_day_night_timer_driving_light_on(
+    local_time_of_day_seconds: u32,
+    local_weekday_number: u32,
+    timer_settings: &TimerSettings,
+) -> bool {
+    if !timer_settings.enabled {
+        return false;
+    }
+
+    let is_weekday_enabled = |weekday: u32| (timer_settings.weekdays_bitmask & (1 << weekday)) != 0;
+    let is_today_enabled = is_weekday_enabled(local_weekday_number);
+    let is_yesterday_enabled = is_weekday_enabled((local_weekday_number + 6) % 7);
+    let start = timer_settings.start_time_of_day_seconds;
+    let end = timer_settings.end_time_of_day_seconds;
+
+    if end > start {
+        is_today_enabled && local_time_of_day_seconds >= start && local_time_of_day_seconds < end
+    } else {
+        // The active period wraps to the next day (e.g. 6pm-6am)
+        (is_today_enabled && local_time_of_day_seconds >= start)
+            || (is_yesterday_enabled && local_time_of_day_seconds < end)
+    }
+}
+
+/// Brightness between night and day brightness, following the sun's height
+/// between sunrise and sunset.
+fn calc_brightness_percent_from_sunlight(
+    local_time_of_day_seconds: u32,
+    local_sunrise_time_of_day_seconds: u32,
+    local_sunset_time_of_day_seconds: u32,
+    day_brightness_percent: u8,
+    night_brightness_percent: u8,
+) -> u8 {
+    let sunrise = local_sunrise_time_of_day_seconds;
+    let sunset = local_sunset_time_of_day_seconds;
+    let now = local_time_of_day_seconds;
+
+    let does_sunset_wrap_next_day = sunset <= sunrise;
+    let is_day_time = if does_sunset_wrap_next_day {
+        now >= sunrise || now < sunset
+    } else {
+        now >= sunrise && now < sunset
+    };
+    if !is_day_time {
+        return night_brightness_percent;
+    }
+
+    let day_length_seconds = if does_sunset_wrap_next_day {
+        SECONDS_PER_DAY - sunrise + sunset
+    } else {
+        sunset - sunrise
+    };
+    let seconds_since_sunrise = if now >= sunrise {
+        now - sunrise
+    } else {
+        SECONDS_PER_DAY - sunrise + now
+    };
+    let sun_path_unit = (seconds_since_sunrise as f32) / (day_length_seconds as f32);
+    let sun_angle_unit = 4.0 * sun_path_unit * (1.0 - sun_path_unit); // Cheap approximation of sin(pi*x)
+    let brightness_percent = sun_angle_unit
+        * ((day_brightness_percent - night_brightness_percent) as f32)
+        + (night_brightness_percent as f32);
+    brightness_percent as u8
 }

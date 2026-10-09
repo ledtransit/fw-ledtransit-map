@@ -2,12 +2,11 @@ use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use edge_nal::{TcpAccept, TcpBind, WithTimeout};
 use edge_nal_embassy::{Tcp, TcpBuffers};
+use embassy_executor::Spawner;
 use embassy_net::Stack;
 
-use crate::net::{
-    prov_server::HttpHandler,
-    wifi_net::{SharedWifiController, TCP_SERV_SOCKET_COUNT},
-};
+use super::{TCP_SOCKET_COUNT, portal::HttpHandler};
+use crate::net::wifi_net::SharedWifiController;
 
 const TCP_RX_SIZE: usize = 512;
 const TCP_TX_SIZE: usize = 512;
@@ -18,18 +17,17 @@ const HTTP_MAX_HEADER_COUNT: usize = 32;
 const HTTP_BUF_SIZE: usize = 1024;
 
 pub fn spawn(
-    spawner: embassy_executor::Spawner,
+    spawner: Spawner,
     ap_stack: Stack<'static>,
-    shared_controller: &'static SharedWifiController,
+    controller: &'static SharedWifiController,
     ap_ssid: &'static heapless::String<32>,
 ) {
-    // Spawn HTTP server tasks
-    for i in 0..TCP_SERV_SOCKET_COUNT {
-        spawner.spawn(http_server_task(ap_stack, shared_controller, ap_ssid, i as u64).unwrap());
+    for task_id in 0..TCP_SOCKET_COUNT {
+        spawner.spawn(http_server_task(ap_stack, controller, ap_ssid, task_id as u64).unwrap());
     }
 }
 
-#[embassy_executor::task(pool_size = TCP_SERV_SOCKET_COUNT)]
+#[embassy_executor::task(pool_size = TCP_SOCKET_COUNT)]
 async fn http_server_task(
     ap_stack: Stack<'static>,
     controller: &'static SharedWifiController,
@@ -38,26 +36,21 @@ async fn http_server_task(
 ) {
     let tcp_bufs = TcpBuffers::<TCP_BUF_POOL_SIZE, TCP_TX_SIZE, TCP_RX_SIZE>::new();
     let tcp = Tcp::new(ap_stack, &tcp_bufs);
-
-    // Bind TCP listener to socket
-    let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 80);
     let acceptor = tcp
-        .bind(sock_addr)
+        .bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 80))
         .await
         .expect("Failed to bind HTTP server socket");
     let timed_acceptor = WithTimeout::new(SOCKET_ACCEPT_TIMEOUT_MS, acceptor);
 
-    let http_handler = HttpHandler::new(controller, ap_ssid.clone());
+    let http_handler = HttpHandler::new(controller, ap_ssid);
     let mut http_buf = [0u8; HTTP_BUF_SIZE];
 
-    // Handle incoming connections forever
     loop {
-        let sock = match timed_acceptor.accept().await {
-            Ok((_, sock)) => sock,
-            Err(_) => continue,
+        let Ok((_, socket)) = timed_acceptor.accept().await else {
+            continue;
         };
         edge_http::io::server::handle_connection::<_, _, HTTP_MAX_HEADER_COUNT>(
-            sock,
+            socket,
             &mut http_buf,
             Some(SOCKET_READ_TIMEOUT_MS),
             task_id,

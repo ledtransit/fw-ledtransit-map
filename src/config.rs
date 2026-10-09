@@ -1,6 +1,8 @@
 // Product configuration and hardware info
 #![allow(unexpected_cfgs)]
 
+use core::fmt::Write;
+
 use envparse::parse_env;
 use esp_hal::efuse;
 
@@ -130,17 +132,17 @@ pub const CONFIG: Config = Config {
 pub fn init() {
     if CONFIG.product == Product::Virt1_1_1 {
         panic!(
-            "Virtual product configuration is not meant to be flashed on hardware. Please set PRODUCT environment variable to a valid product."
+            "Virtual product configuration is not meant to be flashed on hardware. Flash the firmware with `cargo xtask run [product]`."
         );
     }
 }
 
+/// The chip's unique ID from the eFuses, as 32 lowercase hex characters.
 pub fn get_hardware_id_str() -> heapless::String<32> {
-    let unique_id_128 = efuse::read_field_le::<[u8; 16]>(efuse::OPTIONAL_UNIQUE_ID);
-    let mut str = heapless::String::<32>::new();
-    use core::fmt::Write;
-    for byte in unique_id_128.iter() {
-        write!(str, "{:02x}", byte).expect("Failed to write hardware ID string");
+    let unique_id = efuse::read_field_le::<[u8; 16]>(efuse::OPTIONAL_UNIQUE_ID);
+    let mut hardware_id = heapless::String::<32>::new();
+    for byte in unique_id.iter() {
+        write!(hardware_id, "{:02x}", byte).expect("Failed to write hardware ID string");
     }
-    str
+    hardware_id
 }

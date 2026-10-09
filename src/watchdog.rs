@@ -2,7 +2,7 @@
 // Fed only while the LED draw loop makes progress, which runs at all times,
 // also without WiFi or setup: a task blocking the executor, and the draw loop
 // stuck on an await, both stop the feeding. A reset before the boot check also
-// rolls back a newly installed firmware (see store::ota).
+// rolls back a newly installed firmware (see ota).
 
 use core::sync::atomic::{AtomicU32, Ordering};
 

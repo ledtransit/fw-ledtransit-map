@@ -17,6 +17,7 @@ mod device_auth;
 mod display;
 mod factory_serial;
 mod net;
+mod ota;
 mod store;
 mod time;
 mod trace;
@@ -24,15 +25,6 @@ mod ui;
 mod util;
 mod watchdog;
 
-use crate::{
-    buttons::Button,
-    display::{
-        leds::{self, LedColor, LedPixels, LedStatus},
-        painter, renderer,
-    },
-    net::wifi_net,
-    store::{app_settings, ota, transit_data},
-};
 use config::CONFIG;
 use defmt::info;
 use defmt_rtt as _;
@@ -42,19 +34,26 @@ use esp_hal::{
     clock::CpuClock, interrupt::software::SoftwareInterruptControl, ram, timer::timg::TimerGroup,
 };
 
+use crate::{
+    buttons::Button,
+    display::{
+        leds::{self, LedColor, LedPixels, LedStatus},
+        painter, renderer,
+    },
+    net::wifi_net,
+    store::{app_settings, transit_data},
+};
+
 // Place ESP-IDF app descriptor in flash section
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    // Init product hardware configuration
     config::init();
 
-    // Init system
     let hal_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(hal_config);
 
-    // Setup heap allocator
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 66320); // max reclaimed dram2_seg from bootloader
     esp_alloc::heap_allocator!(size: 136 * 1024);
 
@@ -63,7 +62,6 @@ async fn main(spawner: Spawner) -> ! {
     let swi = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, swi.software_interrupt0);
 
-    // Init flash storage
     let flash_store = store::init(peripherals.FLASH).await;
 
     // Device keys, for authenticating to the gateway (and the production
@@ -90,7 +88,7 @@ async fn main(spawner: Spawner) -> ! {
         CONFIG.fw_version.major,
         CONFIG.fw_version.minor,
         CONFIG.fw_version.patch,
-        CONFIG.fw_version.beta.then_some("-beta").unwrap_or("")
+        if CONFIG.fw_version.beta { "-beta" } else { "" }
     );
 
     leds::set_status(LedStatus::Idle);
@@ -121,11 +119,9 @@ async fn main(spawner: Spawner) -> ! {
         }
     }
 
-    // Read the boot partition state (a new image is marked valid once it
-    // reached the gateway)
+    // Read the boot partition state (a new image is kept once it passed the
+    // boot check, see ota::confirm_boot)
     ota::init_boot_partition();
 
-    // Handle buttons UI in main task forever
-    ui::handle_ui_forever().await;
-    unreachable!();
+    ui::handle_ui_forever().await
 }

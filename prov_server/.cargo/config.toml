@@ -1,0 +1,3 @@
+# A tool running on the host, not the firmware's target (see ../.cargo/config.toml)
+[build]
+target = "host-tuple"

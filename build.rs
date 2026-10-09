@@ -3,7 +3,15 @@ use std::env;
 const PROD_VIRTUAL: &str = "virt1-1-1";
 const PROD_LIST: &[&str] = &[PROD_VIRTUAL, "bln1-2512-1", "bln2-2512-1"];
 
+const TARGET: &str = "riscv32imc-unknown-none-elf";
+
 fn main() {
+    let target = env::var("TARGET").unwrap_or_default();
+    assert!(
+        target == TARGET,
+        "The firmware builds for {TARGET}, not {target}. Build it with `cargo xtask build [product]`, or flash it with `cargo xtask run [product]`"
+    );
+
     // Compile protobuf schema to Rust code with serde attributes
     prost_build::Config::new()
         .type_attribute(
@@ -17,10 +25,11 @@ fn main() {
         .expect("Failed to compile proto files");
 
     // Get product to build for from environment
+    // Without a product (e.g. for rust-analyzer), the virtual product: it
+    // builds, but doesn't run on a map
     let product = env::var("PRODUCT").unwrap_or_else(|_| {
         println!(
-            "Environment variable PRODUCT not set. Please specify product with PRODUCT=<...> as one of: {:?}",
-            PROD_LIST
+            "cargo:warning=No PRODUCT set: building the virtual product, which doesn't run on a map. Build the firmware with `cargo xtask build [product]`, or flash it with `cargo xtask run [product]`"
         );
         PROD_VIRTUAL.to_string()
     });

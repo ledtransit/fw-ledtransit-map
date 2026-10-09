@@ -1,5 +1,13 @@
+// The LEDs: the status LED (first), then the map's pixels. Brightness, gamma
+// correction and the current limit are applied when they're written out
+use core::ops::{Deref, DerefMut};
+
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex,
+    mutex::{Mutex, MutexGuard},
+    signal::Signal,
+};
 use embassy_time::{Duration, with_timeout};
 use esp_hal::{
     clock::Clocks,
@@ -22,14 +30,16 @@ use crate::{
     store::app_settings,
 };
 
-static LED_DRIVER_SIGNAL: Signal<CriticalSectionRawMutex, LedDriverEvent> = Signal::new();
+type LedBuffer = [RGB8; CONFIG.cfg.pixel_count + 1];
+
+static LED_DRIVER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 #[ram(unstable(rtc_fast))]
-static LED_BUFFER: Mutex<CriticalSectionRawMutex, [RGB8; CONFIG.cfg.pixel_count + 1]> =
+static LED_BUFFER: Mutex<CriticalSectionRawMutex, LedBuffer> =
     Mutex::new([RGB8::new(0, 0, 0); CONFIG.cfg.pixel_count + 1]);
 
-enum LedDriverEvent {
-    UpdateLeds,
-}
+const SHORT_INTERVAL: Duration = Duration::from_millis(200);
+const MEDIUM_INTERVAL: Duration = Duration::from_millis(500);
+const LONG_INTERVAL: Duration = Duration::from_secs(2);
 
 pub enum LedStatus {
     // Static
@@ -48,7 +58,7 @@ pub enum LedStatus {
     // Error
     WifiError,    // WiFi connection error (wrong credentials, AP not found)
     ServerError,  // HTTP/WS server connection error (cannot reach server, server down)
-    AuthError,    // Authentication error (token rejected)
+    AuthError,    // Authentication error (device keys rejected or missing, device revoked)
     UpdateFailed, // Firmware update failed
 }
 
@@ -77,58 +87,14 @@ pub enum LedColor {
 impl LedColor {
     pub fn as_rgb8(&self) -> RGB8 {
         match self {
-            LedColor::Black => RGB8 { r: 0, g: 0, b: 0 },
-            LedColor::Amber => RGB8 {
-                r: 255,
-                g: 163,
-                b: 108,
-            },
-            LedColor::Green => RGB8 {
-                r: 0,
-                g: 255,
-                b: 80,
-            },
-            LedColor::Blue => RGB8 {
-                r: 0,
-                g: 80,
-                b: 255,
-            },
-            LedColor::Yellow => RGB8 {
-                r: 255,
-                g: 180,
-                b: 0,
-            },
-            LedColor::Red => RGB8 {
-                r: 255,
-                g: 60,
-                b: 0,
-            },
-            LedColor::Pink => RGB8 {
-                r: 255,
-                g: 0,
-                b: 200,
-            },
-            LedColor::Purple => RGB8 {
-                r: 140,
-                g: 0,
-                b: 255,
-            },
-        }
-    }
-}
-
-enum LedInterval {
-    Short,
-    Medium,
-    Long,
-}
-
-impl LedInterval {
-    pub fn as_duration(&self) -> Duration {
-        match self {
-            LedInterval::Short => Duration::from_millis(200),
-            LedInterval::Medium => Duration::from_millis(500),
-            LedInterval::Long => Duration::from_secs(2),
+            LedColor::Black => RGB8::new(0, 0, 0),
+            LedColor::Amber => RGB8::new(255, 163, 108),
+            LedColor::Green => RGB8::new(0, 255, 80),
+            LedColor::Blue => RGB8::new(0, 80, 255),
+            LedColor::Yellow => RGB8::new(255, 180, 0),
+            LedColor::Red => RGB8::new(255, 60, 0),
+            LedColor::Pink => RGB8::new(255, 0, 200),
+            LedColor::Purple => RGB8::new(140, 0, 255),
         }
     }
 }
@@ -138,19 +104,132 @@ pub fn spawn(spawner: Spawner, gpio: AnyPin<'static>, rmt_peri: RMT<'static>) {
     animations::spawn(spawner);
 }
 
-async fn led_buffer_iter_processed(led_buffer: &[RGB8]) -> impl Iterator<Item = RGB8> + '_ {
-    let is_light_on = app_settings::session::get_settings().await.light_on;
-    let brightness_percent = get_current_brightness_percent().await;
+/// Writes the buffer out to the LEDs.
+pub fn update() {
+    LED_DRIVER_SIGNAL.signal(());
+}
 
-    let status_led_iter = brightness(
-        gamma(core::iter::once(led_buffer[0])),
-        brightness_percent.saturating_add(100),
-    );
-    let pixel_leds_iter = brightness(
-        gamma(led_buffer.iter().cloned().skip(1)),
-        if is_light_on { brightness_percent } else { 0 },
-    );
-    status_led_iter.chain(pixel_leds_iter)
+pub fn set_status(status: LedStatus) {
+    animations::cancel_status_animation();
+    animations::start_status_animation(status_animation(status));
+}
+
+fn status_animation(status: LedStatus) -> LedStatusAnimationEvent {
+    use LedStatusAnimationEvent::{Alternate, Blink, Constant};
+    let error = |color: LedColor| {
+        Alternate(
+            color.as_rgb8(),
+            LedColor::Red.as_rgb8(),
+            SHORT_INTERVAL,
+            SHORT_INTERVAL,
+        )
+    };
+    match status {
+        LedStatus::Idle => Constant(LedColor::Black.as_rgb8()),
+        LedStatus::Ok => Constant(LedColor::Green.as_rgb8()),
+        LedStatus::OkUpdateAvailable => Alternate(
+            LedColor::Green.as_rgb8(),
+            LedColor::Pink.as_rgb8(),
+            LONG_INTERVAL,
+            SHORT_INTERVAL,
+        ),
+        LedStatus::ToggleOff => Constant(LedColor::Blue.as_rgb8()),
+        LedStatus::TimerOff => Constant(LedColor::Purple.as_rgb8()),
+        LedStatus::Pairing => Blink(LedColor::Blue.as_rgb8(), MEDIUM_INTERVAL),
+        LedStatus::ConnectingWifi => Blink(LedColor::Yellow.as_rgb8(), MEDIUM_INTERVAL),
+        LedStatus::ConnectingServer => Blink(LedColor::Green.as_rgb8(), MEDIUM_INTERVAL),
+        LedStatus::UpdatingFirmware => Blink(LedColor::Pink.as_rgb8(), MEDIUM_INTERVAL),
+        LedStatus::WifiError => error(LedColor::Yellow),
+        LedStatus::ServerError => error(LedColor::Green),
+        LedStatus::AuthError => error(LedColor::Blue),
+        LedStatus::UpdateFailed => error(LedColor::Pink),
+    }
+}
+
+/// The status matching the session state (once set up).
+pub async fn set_status_led_from_session() {
+    let settings = app_settings::session::get_settings().await;
+    let is_provisioned = app_settings::persist::get_settings()
+        .await
+        .has_credentials_and_is_claimed();
+    if !is_provisioned {
+        return;
+    }
+    set_status(if settings.updating_firmware {
+        LedStatus::UpdatingFirmware
+    } else if settings.light_on && settings.firmware_update_available.is_some() {
+        LedStatus::OkUpdateAvailable
+    } else if settings.light_on {
+        LedStatus::Ok
+    } else if settings.night_timer_active {
+        LedStatus::TimerOff
+    } else {
+        LedStatus::ToggleOff
+    });
+}
+
+pub async fn set_pixels(pixels: LedPixels) {
+    animations::cancel_pixels_animation();
+    let event = match pixels {
+        LedPixels::Off => {
+            LED_BUFFER.lock().await[1..].fill(LedColor::Black.as_rgb8());
+            update();
+            return;
+        }
+        LedPixels::FadeOut => LedPixelsAnimationEvent::FadeOut,
+        LedPixels::StartupAnimation(color) => LedPixelsAnimationEvent::PlayStartup(color),
+        LedPixels::ProgressPercent(progress) => LedPixelsAnimationEvent::ProgressPercent(progress),
+        LedPixels::Identify => LedPixelsAnimationEvent::Identify,
+        LedPixels::TestMode => LedPixelsAnimationEvent::TestMode,
+        LedPixels::DemoMode => LedPixelsAnimationEvent::DemoMode,
+    };
+    animations::start_pixels_animation(event);
+}
+
+pub async fn wait_pixels_animation_complete() {
+    with_timeout(
+        Duration::from_secs(3),
+        animations::wait_until_pixels_animation_complete(),
+    )
+    .await
+    .ok();
+}
+
+pub async fn set_status_pixel(color: RGB8) {
+    LED_BUFFER.lock().await[0] = color;
+}
+
+/// The map's pixels (without the status LED).
+pub async fn get_mut_pixel_buffer() -> impl DerefMut<Target = [RGB8]> {
+    PixelBufferGuard(LED_BUFFER.lock().await)
+}
+
+struct PixelBufferGuard<'a>(MutexGuard<'a, CriticalSectionRawMutex, LedBuffer>);
+
+impl Deref for PixelBufferGuard<'_> {
+    type Target = [RGB8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0[1..]
+    }
+}
+
+impl DerefMut for PixelBufferGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0[1..]
+    }
+}
+
+/// The brightness from the sunlight automation, else the configured one.
+pub async fn get_current_brightness_percent() -> u8 {
+    let auto_brightness_percent = app_settings::session::get_settings()
+        .await
+        .auto_brightness_percent;
+    let manual_brightness_percent = app_settings::persist::get_settings()
+        .await
+        .config
+        .brightness_percent as u8;
+    auto_brightness_percent.unwrap_or(manual_brightness_percent)
 }
 
 pub async fn get_current_estimate_milliamps() -> u32 {
@@ -161,34 +240,36 @@ pub async fn get_current_estimate_milliamps() -> u32 {
     const SYS_IDLE_MA: f32 = 239.0; // WiFi connected, actively rendering and drawing
 
     let led_buffer = LED_BUFFER.lock().await;
-    let leds_iter = led_buffer_iter_processed(&*led_buffer).await;
-
-    let mut total_ma: f32 = 0.0;
-    for led in leds_iter {
-        total_ma += (led.r as f32 / 255.0) * CHA_RED_MA;
-        total_ma += (led.g as f32 / 255.0) * CHA_GREEN_MA;
-        total_ma += (led.b as f32 / 255.0) * CHA_BLUE_MA;
-    }
-    total_ma += SYS_IDLE_MA;
-    total_ma as u32
+    let leds_ma = processed_leds(&*led_buffer)
+        .await
+        .fold(0.0, |total_ma, led| {
+            total_ma
+                + (led.r as f32 / 255.0) * CHA_RED_MA
+                + (led.g as f32 / 255.0) * CHA_GREEN_MA
+                + (led.b as f32 / 255.0) * CHA_BLUE_MA
+        });
+    (leds_ma + SYS_IDLE_MA) as u32
 }
 
-pub async fn get_current_brightness_percent() -> u8 {
-    let session_settings = app_settings::session::get_settings().await;
-    let persist_settings = app_settings::persist::get_settings().await;
+// As written out: gamma corrected, at the brightness (the pixels off with the
+// light off, the status LED brighter)
+async fn processed_leds(led_buffer: &[RGB8]) -> impl Iterator<Item = RGB8> + '_ {
+    let is_light_on = app_settings::session::get_settings().await.light_on;
+    let brightness_percent = get_current_brightness_percent().await;
 
-    let manual_brightness_percent = persist_settings.config.brightness_percent as u8;
-    let auto_brightness_percent_opt = session_settings.auto_brightness_percent;
-    if let Some(auto_brightness_percent) = auto_brightness_percent_opt {
-        auto_brightness_percent
-    } else {
-        manual_brightness_percent
-    }
+    let status_led = brightness(
+        gamma(core::iter::once(led_buffer[0])),
+        brightness_percent.saturating_add(100),
+    );
+    let pixels = brightness(
+        gamma(led_buffer.iter().cloned().skip(1)),
+        if is_light_on { brightness_percent } else { 0 },
+    );
+    status_led.chain(pixels)
 }
 
 #[embassy_executor::task]
 async fn led_driver_task(gpio: AnyPin<'static>, rmt_peri: RMT<'static>) {
-    // Initialize RMT channel for LED driving
     let rmt = Rmt::new(rmt_peri, Rate::from_mhz(80)).expect("Failed to initialize RMT");
     let rmt_tx_config = TxChannelConfig::default()
         .with_clk_divider(1)
@@ -201,255 +282,60 @@ async fn led_driver_task(gpio: AnyPin<'static>, rmt_peri: RMT<'static>) {
         .unwrap()
         .with_pin(gpio);
     let clock_mhz = Clocks::get().apb_clock.as_mhz();
-
     let mut led_driver = LedDriver::new(rmt_channel, ws2812_pulses(clock_mhz));
 
     // Clear all LEDs
     led_driver.write(LED_BUFFER.lock().await.iter().cloned());
 
     loop {
-        match LED_DRIVER_SIGNAL.wait().await {
-            LedDriverEvent::UpdateLeds => {
-                let current_limit_ma = app_settings::persist::get_settings()
-                    .await
-                    .config
-                    .current_limit_ma;
+        LED_DRIVER_SIGNAL.wait().await;
+        limit_current().await;
 
-                // Reduce configured brightnesses until within configured current limit
-                let mut brightness_changed = false;
-                while get_current_estimate_milliamps().await > current_limit_ma {
-                    app_settings::persist::update_settings(|set| {
-                        let max_brightness_percent = set
-                            .config
-                            .brightness_percent
-                            .max(set.config.sunlight_auto_brightness.day_brightness_percent)
-                            .max(set.config.sunlight_auto_brightness.night_brightness_percent);
-                        let limited_brightness_percent = max_brightness_percent.saturating_sub(5);
-                        set.config.brightness_percent = set
-                            .config
-                            .brightness_percent
-                            .min(limited_brightness_percent);
-                        set.config.sunlight_auto_brightness.day_brightness_percent = set
-                            .config
-                            .sunlight_auto_brightness
-                            .day_brightness_percent
-                            .min(limited_brightness_percent);
-                        set.config.sunlight_auto_brightness.night_brightness_percent = set
-                            .config
-                            .sunlight_auto_brightness
-                            .night_brightness_percent
-                            .min(limited_brightness_percent);
-                    })
-                    .await;
-                    brightness_changed = true;
-                    automation::step().await; // recalculate auto brightness percent if needed
-                }
-                if brightness_changed {
-                    ws_client::send_config();
-                }
-
-                let led_buffer = LED_BUFFER.lock().await;
-                let leds_iter = led_buffer_iter_processed(&*led_buffer).await;
-
-                // Transmit LED RMT data in critical section to avoid timing issues with interrupts
-                critical_section::with(|_| {
-                    led_driver.write(leds_iter);
-                });
-            }
-        }
+        let led_buffer = LED_BUFFER.lock().await;
+        let leds = processed_leds(&*led_buffer).await;
+        // Interrupts would break the LEDs' timing
+        critical_section::with(|_| {
+            led_driver.write(leds);
+        });
     }
 }
 
-pub fn set_status(status: LedStatus) {
-    animations::cancel_status_animation();
-
-    match status {
-        LedStatus::Idle => {
-            animations::start_status_animation(LedStatusAnimationEvent::Constant(
-                LedColor::Black.as_rgb8(),
-            ));
-        }
-        LedStatus::Ok => {
-            animations::start_status_animation(LedStatusAnimationEvent::Constant(
-                LedColor::Green.as_rgb8(),
-            ));
-        }
-        LedStatus::OkUpdateAvailable => {
-            animations::start_status_animation(LedStatusAnimationEvent::Alternate(
-                LedColor::Green.as_rgb8(),
-                LedColor::Pink.as_rgb8(),
-                LedInterval::Long.as_duration(),
-                LedInterval::Short.as_duration(),
-            ));
-        }
-        LedStatus::ToggleOff => {
-            animations::start_status_animation(LedStatusAnimationEvent::Constant(
-                LedColor::Blue.as_rgb8(),
-            ));
-        }
-        LedStatus::TimerOff => {
-            animations::start_status_animation(LedStatusAnimationEvent::Constant(
-                LedColor::Purple.as_rgb8(),
-            ));
-        }
-        LedStatus::Pairing => {
-            animations::start_status_animation(LedStatusAnimationEvent::Blink(
-                LedColor::Blue.as_rgb8(),
-                LedInterval::Medium.as_duration(),
-            ));
-        }
-        LedStatus::ConnectingWifi => {
-            animations::start_status_animation(LedStatusAnimationEvent::Blink(
-                LedColor::Yellow.as_rgb8(),
-                LedInterval::Medium.as_duration(),
-            ));
-        }
-        LedStatus::ConnectingServer => {
-            animations::start_status_animation(LedStatusAnimationEvent::Blink(
-                LedColor::Green.as_rgb8(),
-                LedInterval::Medium.as_duration(),
-            ));
-        }
-        LedStatus::UpdatingFirmware => {
-            animations::start_status_animation(LedStatusAnimationEvent::Blink(
-                LedColor::Pink.as_rgb8(),
-                LedInterval::Medium.as_duration(),
-            ));
-        }
-        LedStatus::WifiError => {
-            animations::start_status_animation(LedStatusAnimationEvent::Alternate(
-                LedColor::Yellow.as_rgb8(),
-                LedColor::Red.as_rgb8(),
-                LedInterval::Short.as_duration(),
-                LedInterval::Short.as_duration(),
-            ));
-        }
-        LedStatus::ServerError => {
-            animations::start_status_animation(LedStatusAnimationEvent::Alternate(
-                LedColor::Green.as_rgb8(),
-                LedColor::Red.as_rgb8(),
-                LedInterval::Short.as_duration(),
-                LedInterval::Short.as_duration(),
-            ));
-        }
-        LedStatus::AuthError => {
-            animations::start_status_animation(LedStatusAnimationEvent::Alternate(
-                LedColor::Blue.as_rgb8(),
-                LedColor::Red.as_rgb8(),
-                LedInterval::Short.as_duration(),
-                LedInterval::Short.as_duration(),
-            ));
-        }
-        LedStatus::UpdateFailed => {
-            animations::start_status_animation(LedStatusAnimationEvent::Alternate(
-                LedColor::Pink.as_rgb8(),
-                LedColor::Red.as_rgb8(),
-                LedInterval::Short.as_duration(),
-                LedInterval::Short.as_duration(),
-            ));
-        }
-    }
-}
-
-pub async fn set_pixels(pixels: LedPixels) {
-    animations::cancel_pixels_animation();
-
-    match pixels {
-        LedPixels::Off => {
-            LED_BUFFER.lock().await[1..]
-                .iter_mut()
-                .for_each(|c| *c = LedColor::Black.as_rgb8());
-            LED_DRIVER_SIGNAL.signal(LedDriverEvent::UpdateLeds);
-        }
-        LedPixels::FadeOut => {
-            animations::start_pixels_animation(LedPixelsAnimationEvent::FadeOut);
-        }
-        LedPixels::StartupAnimation(color) => {
-            animations::start_pixels_animation(LedPixelsAnimationEvent::PlayStartup(color));
-        }
-        LedPixels::ProgressPercent(progress) => {
-            animations::start_pixels_animation(LedPixelsAnimationEvent::ProgressPercent(progress));
-        }
-        LedPixels::Identify => {
-            animations::start_pixels_animation(LedPixelsAnimationEvent::Identify);
-        }
-        LedPixels::TestMode => {
-            animations::start_pixels_animation(LedPixelsAnimationEvent::TestMode);
-        }
-        LedPixels::DemoMode => {
-            animations::start_pixels_animation(LedPixelsAnimationEvent::DemoMode);
-        }
-    }
-}
-
-pub async fn wait_pixels_animation_complete() {
-    with_timeout(
-        Duration::from_secs(3),
-        animations::wait_until_pixels_animation_complete(),
-    )
-    .await
-    .ok();
-}
-
-pub fn update() {
-    LED_DRIVER_SIGNAL.signal(LedDriverEvent::UpdateLeds);
-}
-
-pub async fn get_mut_pixel_buffer() -> impl core::ops::DerefMut<Target = [RGB8]> {
-    struct PixelBufferGuard<'a> {
-        guard: embassy_sync::mutex::MutexGuard<
-            'a,
-            CriticalSectionRawMutex,
-            [RGB8; CONFIG.cfg.pixel_count + 1],
-        >,
-    }
-
-    impl<'a> core::ops::Deref for PixelBufferGuard<'a> {
-        type Target = [RGB8];
-
-        fn deref(&self) -> &Self::Target {
-            &self.guard[1..]
-        }
-    }
-
-    impl<'a> core::ops::DerefMut for PixelBufferGuard<'a> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.guard[1..]
-        }
-    }
-
-    let guard = LED_BUFFER.lock().await;
-    PixelBufferGuard { guard }
-}
-
-pub async fn set_status_pixel(color: RGB8) {
-    LED_BUFFER.lock().await[0] = color;
-}
-
-/// Set status LED based on current session state
-pub async fn set_status_led_from_session() {
-    let settings = app_settings::session::get_settings().await;
-    let is_provisioned = app_settings::persist::get_settings()
+// Lowers the configured brightnesses until the estimated current is within
+// the configured limit
+async fn limit_current() {
+    const BRIGHTNESS_STEP_PERCENT: u32 = 5;
+    let current_limit_ma = app_settings::persist::get_settings()
         .await
-        .has_credentials_and_is_claimed();
-    if !is_provisioned {
-        return;
+        .config
+        .current_limit_ma;
+
+    let mut brightness_changed = false;
+    while get_current_estimate_milliamps().await > current_limit_ma {
+        app_settings::persist::update_settings(|set| {
+            let auto_brightness = &mut set.config.sunlight_auto_brightness;
+            let limited_brightness_percent = set
+                .config
+                .brightness_percent
+                .max(auto_brightness.day_brightness_percent)
+                .max(auto_brightness.night_brightness_percent)
+                .saturating_sub(BRIGHTNESS_STEP_PERCENT);
+            set.config.brightness_percent = set
+                .config
+                .brightness_percent
+                .min(limited_brightness_percent);
+            auto_brightness.day_brightness_percent = auto_brightness
+                .day_brightness_percent
+                .min(limited_brightness_percent);
+            auto_brightness.night_brightness_percent = auto_brightness
+                .night_brightness_percent
+                .min(limited_brightness_percent);
+        })
+        .await;
+        brightness_changed = true;
+        // Recalculates the auto brightness
+        automation::step().await;
     }
-    set_status(if settings.updating_firmware {
-        LedStatus::UpdatingFirmware
-    } else {
-        if settings.light_on {
-            if settings.firmware_update_available.is_some() {
-                LedStatus::OkUpdateAvailable
-            } else {
-                LedStatus::Ok
-            }
-        } else {
-            if settings.night_timer_active {
-                LedStatus::TimerOff
-            } else {
-                LedStatus::ToggleOff
-            }
-        }
-    });
+    if brightness_changed {
+        ws_client::send_config();
+    }
 }
