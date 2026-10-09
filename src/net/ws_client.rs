@@ -163,7 +163,9 @@ async fn ws_client_task(
                         leds::set_status(LedStatus::AuthError);
                     }
                     WsClientError::Unlinked => {
-                        info!("Device no longer linked to an account, restarting WiFi provisioning");
+                        info!(
+                            "Device no longer linked to an account, restarting WiFi provisioning"
+                        );
                         wifi_net::start_provisioning().await;
                         if sta_stack.is_link_up() {
                             sta_stack.wait_config_down().await;
@@ -607,6 +609,10 @@ async fn handle_proto_message(payload: Payload, payload_len: usize) -> Result<()
                 transit_data.disruptions.len()
             );
             transit_data::on_data(transit_data, payload_len).await;
+
+            // Received, decoded and processed transit data from the gateway: a
+            // newly installed firmware is kept from now on
+            ota::confirm_boot();
         }
         Payload::DeviceUpdate(update) => {
             // On device update: Store firmware update info for later use when update command is received

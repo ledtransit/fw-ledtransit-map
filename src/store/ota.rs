@@ -1,13 +1,19 @@
 // Secure over-the-air firmware updates
 // Available firmware updates are notified via the WebSocket protobuf and downloaded via HTTPS from the CDN.
 // The OTA updates are dual banked, with rollback support and integrity is verified by SHA256 hash read back from flash and NIST P-256 signature of the update metadata.
-use core::{ffi::CStr, net::SocketAddr, ops::DerefMut};
+use core::{
+    ffi::CStr,
+    net::SocketAddr,
+    ops::DerefMut,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use defmt::{debug, error, info};
 use edge_http::{Method, io::client};
 use edge_nal_embassy::{Tcp, TcpBuffers};
 use edge_nal_tls::TlsConnector;
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_net::{Stack, dns};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, TimeoutError, Timer, with_timeout};
@@ -46,6 +52,10 @@ const HTTP_BUFFER_SIZE: usize = 512;
 const OTA_PARTITION_SIZE: usize = 0x14F000; // partitions.csv factory/ota0/ota1
 const OTA_CHUNK_SIZE: usize = 4 * 1024; // Must be multiple of flash sector size (4KB) for efficient writes
 
+/// A new image must pass the boot check (see confirm_boot) within this time
+/// after booting, or the device reboots, which makes the bootloader roll back
+const BOOT_CHECK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
 type HttpsConnection<'a> = client::Connection<'a, TlsConnector<'a, Tcp<'a>>, HTTP_MAX_NUM_HEADERS>;
 type OtaFlashUpdater<'a> = OtaUpdater<'a, FlashStorage<'static>>;
 type FlashStorageRegion<'a> = FlashRegion<'a, FlashStorage<'static>>;
@@ -59,16 +69,19 @@ pub enum OtaError {
     Timeout(TimeoutError),
     StatusCodeError(u16),
     HeaderMissingError,
-    PartitionError,
     FlashWriteError(partitions::Error),
     FlashReadError(partitions::Error),
     HashMismatchError,
+    SizeMismatchError,
     SignatureMalformedError,
     SignatureVerificationError,
 }
 
 static OTA_SIGNAL: Signal<CriticalSectionRawMutex, OtaEvent> = Signal::new();
 static OTA_CANCEL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+// Separate from the events: must not replace a pending one, nor be replaced
+static OTA_CONFIRM: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static BOOT_CONFIRMED: AtomicBool = AtomicBool::new(false);
 
 enum OtaEvent {
     InitBootPartition,
@@ -86,6 +99,25 @@ pub fn spawn(
     sha_peri: SHA<'static>,
 ) {
     spawner.spawn(ota_client_task(sta_stack, tls, ca_cert, flash_store, sha_peri).unwrap());
+    spawner.spawn(boot_check_timeout_task(flash_store).unwrap());
+}
+
+/// Rolls back a new image that doesn't pass the boot check in time, e.g.
+/// because it hangs or can't connect: rebooting an unconfirmed image makes the
+/// bootloader boot the previous one.
+#[embassy_executor::task]
+async fn boot_check_timeout_task(flash_store: &'static SharedFlashStorage) {
+    Timer::after(BOOT_CHECK_TIMEOUT).await;
+    if BOOT_CONFIRMED.load(Ordering::Relaxed) {
+        return;
+    }
+    let state = with_ota_updater(flash_store, |ota| ota.current_ota_state()).await;
+    if let Ok(OtaImageState::New | OtaImageState::PendingVerify) = state {
+        error!("New firmware didn't pass the boot check in time, rebooting to roll back");
+        ws_client::quit(Err(WsClientError::Reboot));
+        Timer::after(Duration::from_secs(2)).await;
+        esp_hal::system::software_reset();
+    }
 }
 
 #[embassy_executor::task]
@@ -119,7 +151,15 @@ async fn run(
     sha: &mut Sha<'_>,
 ) -> Result<(), OtaError> {
     loop {
-        let event = OTA_SIGNAL.wait().await;
+        // Confirming first: when an update arrives right after connecting, the
+        // running image is confirmed before it's replaced
+        let event = match select(OTA_CONFIRM.wait(), OTA_SIGNAL.wait()).await {
+            Either::First(()) => {
+                with_ota_updater(flash_store, confirm_current_partition).await;
+                continue;
+            }
+            Either::Second(event) => event,
+        };
         OTA_CANCEL.reset();
 
         match event {
@@ -215,6 +255,21 @@ async fn run(
                     continue;
                 }
 
+                // Check the signature before downloading: only signed metadata
+                // gets to overwrite the other bank (the previous firmware). The
+                // signed hash is checked against the image read back from flash
+                if let Err(e) = verify_update_signature(&update) {
+                    trace::err!("OTA update refused, signature invalid: {:?}", e);
+                    app_settings::session::update_settings(|set| {
+                        set.update_has_failed = true;
+                    })
+                    .await;
+                    ws_client::send_status();
+                    ws_client::send_telemetry();
+                    leds::set_status(LedStatus::UpdateFailed);
+                    continue;
+                }
+
                 info!(
                     "Starting OTA update to v{}.{}.{} ({} bytes)",
                     update.firmware_version_major,
@@ -245,28 +300,6 @@ async fn run(
                 .await
                 {
                     Ok(()) => {
-                        // Verify the OTA metadata signature is valid using the NIST P-256 public key
-                        let pubkey = p256::ecdsa::VerifyingKey::from_public_key_der(
-                            include_bytes!("../../assets/secure_ota/p256_ota_public_key.der"),
-                        )
-                        .expect("Failed to load OTA public key");
-                        let signature = p256::ecdsa::Signature::from_slice(&update.p256_signature)
-                            .map_err(|_| OtaError::SignatureMalformedError)?;
-                        // Message format: concat([u32le:MAJOR, u32le:MINOR, u32le:PATCH, u32le:SIZE, [u8:32]:SHA256, str:PRODUCT_ID])
-                        let message = [
-                            &update.firmware_version_major.to_le_bytes(),
-                            &update.firmware_version_minor.to_le_bytes(),
-                            &update.firmware_version_patch.to_le_bytes(),
-                            &update.size_bytes.to_le_bytes(),
-                            update.sha256_hash.as_slice(),
-                            CONFIG.product.as_str().as_bytes(),
-                        ]
-                        .concat();
-                        if pubkey.verify(&message, &signature).is_err() {
-                            trace::err!("OTA signature verification failed");
-                            return Err(OtaError::SignatureVerificationError);
-                        }
-
                         // Activate new boot partition and trigger reboot by WS quit signal
                         with_ota_updater(flash_store, activate_boot_partition).await;
                         ws_client::quit(Err(WsClientError::Reboot));
@@ -290,6 +323,30 @@ async fn run(
             }
         }
     }
+}
+
+/// Verifies the update metadata is signed by LEDTransit (NIST P-256), for
+/// this product. The image is covered by the signed SHA-256.
+fn verify_update_signature(update: &DeviceUpdate) -> Result<(), OtaError> {
+    let pubkey = p256::ecdsa::VerifyingKey::from_public_key_der(include_bytes!(
+        "../../assets/secure_ota/p256_ota_public_key.der"
+    ))
+    .expect("Failed to load OTA public key");
+    let signature = p256::ecdsa::Signature::from_slice(&update.p256_signature)
+        .map_err(|_| OtaError::SignatureMalformedError)?;
+    // Message format: concat([u32le:MAJOR, u32le:MINOR, u32le:PATCH, u32le:SIZE, [u8:32]:SHA256, str:PRODUCT_ID])
+    let message = [
+        &update.firmware_version_major.to_le_bytes(),
+        &update.firmware_version_minor.to_le_bytes(),
+        &update.firmware_version_patch.to_le_bytes(),
+        &update.size_bytes.to_le_bytes(),
+        update.sha256_hash.as_slice(),
+        CONFIG.product.as_str().as_bytes(),
+    ]
+    .concat();
+    pubkey
+        .verify(&message, &signature)
+        .map_err(|_| OtaError::SignatureVerificationError)
 }
 
 async fn with_ota_updater<R>(
@@ -316,18 +373,13 @@ fn init_current_partition(ota: &mut OtaFlashUpdater) -> InitBootPartitionResult 
         is_factory: false,
     };
 
-    if let Ok(state) = current_state {
-        // Activate newly installed OTA partition on boot by marking it as valid
-        if state == OtaImageState::New || state == OtaImageState::PendingVerify {
-            info!("Changing OTA image state from {:?} to Valid", state);
-            ota.set_current_ota_state(OtaImageState::Valid).unwrap();
-        }
+    // A newly installed image is only marked valid once it reached the
+    // gateway (see confirm_boot)
 
-        // If previous OTA was aborted, it will be rolled back to the other OTA partition or factory by the bootloader
-        if state == OtaImageState::Aborted {
-            info!("Previous OTA was aborted, marking firmware as rolled back");
-            result.is_aborted = true;
-        }
+    // If previous OTA was aborted, it will be rolled back to the other OTA partition or factory by the bootloader
+    if let Ok(OtaImageState::Aborted) = current_state {
+        info!("Previous OTA was aborted, marking firmware as rolled back");
+        result.is_aborted = true;
     }
 
     if current_part == AppPartitionSubType::Factory {
@@ -342,17 +394,28 @@ fn init_current_partition(ota: &mut OtaFlashUpdater) -> InitBootPartitionResult 
     result
 }
 
-fn set_factory_boot_partition(ota: &mut OtaFlashUpdater) {
-    let current_part = ota.selected_partition().unwrap();
-
-    match current_part {
-        AppPartitionSubType::Factory => {} // Already booting from factory
-        AppPartitionSubType::Ota0 | AppPartitionSubType::Ota1 => {
-            // Mark OTA partition as aborted so bootloader will roll back to other OTA partition or factory on next boot
-            ota.set_current_ota_state(OtaImageState::Aborted).unwrap();
-        }
-        _ => panic!("Invalid OTA partition type: {:?}", current_part),
+/// Marks a newly installed image valid: it booted, connected to WiFi,
+/// authenticated with the gateway over TLS, and received, decoded and
+/// processed transit data. Until then, the bootloader rolls back to the
+/// previous image on the next reboot.
+fn confirm_current_partition(ota: &mut OtaFlashUpdater) {
+    if let Ok(state @ (OtaImageState::New | OtaImageState::PendingVerify)) = ota.current_ota_state()
+    {
+        info!(
+            "Gateway reached, changing OTA image state from {:?} to Valid",
+            state
+        );
+        ota.set_current_ota_state(OtaImageState::Valid).unwrap();
     }
+}
+
+fn set_factory_boot_partition(ota: &mut OtaFlashUpdater) {
+    // Clears both OTA data entries, so the bootloader boots the factory app.
+    // Only marking the running image aborted would make it boot the other OTA
+    // bank instead, as long as that holds a valid (older) image
+    ota.ota_data()
+        .and_then(|mut ota_data| ota_data.set_current_app_partition(AppPartitionSubType::Factory))
+        .unwrap();
 }
 
 fn write_ota_chunk_to_flash(
@@ -431,13 +494,16 @@ async fn download_ota_update_to_flash(
     let host = url.host();
     let path = url.path();
 
-    // DNS resolve IP
-    let ip_addr = *stack
-        .dns_query(host, DnsQueryType::A)
-        .await
-        .map_err(OtaError::DnsError)?
-        .first()
-        .ok_or(OtaError::DnsError(dns::Error::Failed))?;
+    // DNS resolve IP with timeout
+    let ip_addr = *with_timeout(
+        Duration::from_secs(10),
+        stack.dns_query(host, DnsQueryType::A),
+    )
+    .await
+    .map_err(OtaError::Timeout)?
+    .map_err(OtaError::DnsError)?
+    .first()
+    .ok_or(OtaError::DnsError(dns::Error::Failed))?;
     let socket_addr = SocketAddr::new(ip_addr.into(), 443);
     debug!("Resolved Ota IP to {}, path {}", ip_addr, path);
 
@@ -446,10 +512,12 @@ async fn download_ota_update_to_flash(
     let tcp = Tcp::new(stack, &tcp_bufs);
 
     // Configure TLS session
-    let host_zstr = heapless::format!(64; "{}\0", host).expect("OTA host name too long");
+    let host_zstr = heapless::format!(64; "{}\0", host).map_err(|_| OtaError::UrlError)?;
+    let server_name =
+        CStr::from_bytes_with_nul(host_zstr.as_bytes()).map_err(|_| OtaError::UrlError)?;
     let session_config = ClientSessionConfig {
         ca_chain: Some(ca_cert.clone()),
-        server_name: Some(CStr::from_bytes_with_nul(host_zstr.as_bytes()).unwrap()),
+        server_name: Some(server_name),
         ..ClientSessionConfig::new()
     };
 
@@ -472,9 +540,10 @@ async fn download_ota_update_to_flash(
     .map_err(OtaError::Timeout)?
     .map_err(OtaError::HttpError)?;
 
-    // Start response
-    conn.initiate_response()
+    // Start response with timeout
+    with_timeout(Duration::from_secs(10), conn.initiate_response())
         .await
+        .map_err(OtaError::Timeout)?
         .map_err(OtaError::HttpError)?;
     let response = conn.headers().map_err(OtaError::HttpError)?;
 
@@ -494,14 +563,15 @@ async fn download_ota_update_to_flash(
         .get("Content-Length")
         .and_then(|v| v.parse::<usize>().ok());
     if let Some(len) = content_length {
-        if len > OTA_PARTITION_SIZE {
+        // The signed size, checked against the partition size before
+        if len != update.size_bytes as usize {
             trace::err!(
-                "OTA content length {} exceeds partition size {}, url: {}",
+                "OTA content length {} differs from update size {}, url: {}",
                 len,
-                OTA_PARTITION_SIZE,
+                update.size_bytes,
                 update.image_url
             );
-            return Err(OtaError::PartitionError);
+            return Err(OtaError::SizeMismatchError);
         }
         debug!("OTA content length: {} bytes", len);
     } else {
@@ -619,6 +689,17 @@ pub fn init_boot_partition() {
 
 pub fn boot_from_factory() {
     OTA_SIGNAL.signal(OtaEvent::BootFromFactory);
+}
+
+/// The firmware works with the gateway (see confirm_current_partition): a
+/// newly installed image is kept. Once per boot.
+pub fn confirm_boot() {
+    // Load and store only: no atomic read-modify-write on this target, and
+    // only the WebSocket task calls this
+    if !BOOT_CONFIRMED.load(Ordering::Relaxed) {
+        BOOT_CONFIRMED.store(true, Ordering::Relaxed);
+        OTA_CONFIRM.signal(());
+    }
 }
 
 pub fn cancel() {
