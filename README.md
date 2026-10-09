@@ -124,6 +124,11 @@ If the device is in a state where it cannot be programmed (e.g. the USB interfac
 The application firmware will not boot in this mode, allowing you to re-flash the device using the `cargo xtask run` command.
 After flashing, detach and re-attach the USB cable without holding the button to boot into the application firmware once again.
 
+## Recovery: Factory reset
+
+Holding the down button for 5 seconds while the device starts (power-on or any reboot) makes the bootloader boot the factory firmware and erase the settings, so the device starts in setup mode.
+This works even when the installed application firmware doesn't (e.g. it crashes or hangs), as it's done by the bootloader (`CONFIG_BOOTLOADER_FACTORY_RESET` in `bootloader/sdkconfig.defaults`, built with `cargo xtask bootloader`).
+
 ## Supported Products
 
 | Product     | Model                             | Year | Status                                                                                     | MCU      |

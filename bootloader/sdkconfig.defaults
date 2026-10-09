@@ -1,3 +1,12 @@
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# Factory reset without the application: holding the Down button (GPIO4, to
+# ground) for 5 s at power-on boots the factory app and erases the settings.
+# Recovers devices whose application can't (crash loop, broken buttons)
+CONFIG_BOOTLOADER_FACTORY_RESET=y
+CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET=4
+CONFIG_BOOTLOADER_FACTORY_RESET_PIN_LOW=y
+CONFIG_BOOTLOADER_HOLD_TIME_GPIO=5
+CONFIG_BOOTLOADER_OTA_DATA_ERASE=y
+CONFIG_BOOTLOADER_DATA_FACTORY_RESET="settings"
