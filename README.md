@@ -140,7 +140,6 @@ This works even when the installed application firmware doesn't (e.g. it crashes
 ## Contributing
 
 Contributions to the firmware are welcome! Please open an issue or submit a pull request if you have any suggestions or improvements.
-Please note that we will not consider fully LLM-generated code contributions, as we want to ensure that all code remains maintainable.
 
 ## License
 
