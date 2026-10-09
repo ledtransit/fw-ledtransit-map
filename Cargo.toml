@@ -77,9 +77,12 @@ nourl = { version = "0.1.5", features = ["defmt"] }
 # the base mbedtls-rs always needs (TLS 1.2/1.3 client, ECDHE-ECDSA, AES-GCM,
 # SHA-256, P-256, X.509/PEM parsing): RSA and SHA-256 for the root ISRG Root X1,
 # P-384 and SHA-384 for the Let's Encrypt intermediates, and ECDHE-RSA for RSA
-# server certificates. Builds mbedtls from source (needs clang and cmake)
+# server certificates. A 2 KB instead of 16 KB send buffer per connection: the
+# device only sends small records (larger writes are split), but receives full
+# 16 KB ones. Builds mbedtls from source (needs clang and cmake)
 mbedtls-rs = { version = "0.3.0", default-features = false, features = [
   "defmt",
+  "ssl-out-content-len-2048",
   "alg-rsa",
   "alg-sha512",
   "curve-secp384r1",

@@ -3,6 +3,6 @@
   "rust-analyzer.cargo.target": "riscv32imc-unknown-none-elf",
   "rust-analyzer.server.extraEnv": {
     "PROTOC": "/opt/homebrew/bin/protoc",
-    "PATH": "/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:${env:PATH}",
+    "PATH": "/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
   }
 }

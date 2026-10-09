@@ -24,7 +24,7 @@ use mbedtls_rs::{Certificate, SessionError, Tls};
 use crate::{
     display::leds::{self, LedStatus},
     net::ws_client::{self, WsClientError, client_proto::DeviceUpdate},
-    store::{SharedFlashStorage, app_settings},
+    store::{SharedFlashStorage, app_settings, transit_data},
     time, trace,
 };
 
@@ -40,6 +40,10 @@ enum OtaEvent {
     StartUpdate(DeviceUpdate),
     ScheduleUpdate(DeviceUpdate, Duration),
 }
+
+// The download's TLS session needs 33 KB while downloading and 42 KB at its peak
+// during the handshake (measured), plus margin for fragmentation
+const MIN_FREE_HEAP_FOR_DOWNLOAD: usize = 48 * 1024;
 
 #[derive(defmt::Format, Debug)]
 pub enum OtaError {
@@ -242,6 +246,7 @@ async fn install_update(
     ws_client::send_telemetry();
     leds::set_status(LedStatus::UpdatingFirmware);
     Timer::after(Duration::from_secs(2)).await;
+    free_heap_for_download().await;
 
     match download::download_to_flash(update, sta_stack, tls, ca_cert, flash_store, sha).await {
         Ok(()) => {
@@ -252,6 +257,21 @@ async fn install_update(
             trace::err!("OTA update failed: {:?}", e);
             on_update_failed().await;
         }
+    }
+}
+
+// Frees the transit data only if the download wouldn't fit next to it (new
+// transit data is ignored while updating). The map then stays blank until the
+// reboot, or the next transit data after a failed update.
+async fn free_heap_for_download() {
+    let free_heap = esp_alloc::HEAP.free();
+    info!("OTA update: {} bytes of heap free", free_heap);
+    if free_heap < MIN_FREE_HEAP_FOR_DOWNLOAD {
+        trace::wrn!(
+            "OTA update: only {} bytes of heap free, freeing transit data",
+            free_heap
+        );
+        transit_data::clear().await;
     }
 }
 
