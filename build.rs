@@ -51,7 +51,13 @@ fn main() {
     println!("cargo:rustc-env=HW_MAJOR={}", hw_major);
     println!("cargo:rustc-env=HW_MINOR={}", hw_minor);
     println!("cargo:rustc-check-cfg=cfg(ssl_enabled)");
-    if env::var("SSL_ENABLED").ok().as_deref() == Some("true") {
+    let ssl_enabled = env::var("SSL_ENABLED").ok().as_deref() == Some("true");
+    if ssl_enabled {
         println!("cargo:rustc-cfg=ssl_enabled");
+    }
+
+    // Release builds talk to the gateway and download updates over TLS only
+    if env::var("RELEASE").ok().as_deref() == Some("true") {
+        assert!(ssl_enabled, "Release builds require SSL_ENABLED=true");
     }
 }
