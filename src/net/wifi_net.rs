@@ -16,8 +16,8 @@ use esp_hal::{
     rng::{Rng, Trng},
 };
 use esp_radio::wifi::{
-    self, Config, ControllerConfig, Interface, WifiController, ap::AccessPointConfig,
-    sta::StationConfig,
+    AuthenticationMethodConfig, Config, ControllerConfig, Interface, Password, Ssid,
+    WifiController, ap::AccessPointConfig, sta::StationConfig,
 };
 use mbedtls_rs::{Certificate, Tls, X509};
 
@@ -72,7 +72,7 @@ pub async fn spawn(
     sha_peri: SHA<'static>,
     flash_store: &'static SharedFlashStorage,
 ) {
-    let (controller, wifi_interfaces) = wifi::new(
+    let controller = WifiController::new(
         wifi_peri,
         ControllerConfig::default()
             .with_rx_queue_size(4)
@@ -85,8 +85,14 @@ pub async fn spawn(
             .with_rx_ba_win(4),
     )
     .unwrap();
-    let wifi_ap_device = wifi_interfaces.access_point;
-    let wifi_sta_device = wifi_interfaces.station;
+    let wifi_ap_device = Interface::access_point();
+    let wifi_sta_device = Interface::station();
+
+    // Also the setup network's SSID
+    let device_name = mk_static!(
+        heapless::String<32>,
+        device_name(wifi_ap_device.mac_address())
+    );
 
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
@@ -104,12 +110,6 @@ pub async fn spawn(
             StackResources::<{ provisioning::SOCKET_COUNT }>::new()
         ),
         seed,
-    );
-
-    // Also the setup network's SSID
-    let device_name = mk_static!(
-        heapless::String<32>,
-        device_name(wifi_ap_device.mac_address())
     );
 
     let mut dhcp_config = DhcpConfig::default();
@@ -150,7 +150,7 @@ pub async fn spawn(
     shared_controller
         .lock()
         .await
-        .set_config(&Config::Station(station_config(&settings)))
+        .set_config(&Config::Station(stored_station_config(&settings)))
         .expect("Failed to set STA config");
 
     spawner.spawn(wifi_net_task(shared_controller, device_name).unwrap());
@@ -189,17 +189,26 @@ fn device_name(mac_address: [u8; 6]) -> heapless::String<32> {
     name
 }
 
-fn station_config(settings: &PersistSettings) -> StationConfig {
+/// The station config to connect with: WPA2 (or better) with the password.
+pub fn station_config(ssid: &str, password: &str) -> StationConfig {
+    // The credentials always fit: they're kept as at most 32 and 64 bytes
     StationConfig::default()
-        .with_ssid(settings.wifi_ssid.clone().unwrap_or_default().as_str())
-        .with_password(
-            settings
-                .wifi_password
-                .clone()
-                .unwrap_or_default()
-                .as_str()
-                .into(),
-        )
+        .with_ssid(Ssid::try_from(ssid).expect("SSID too long"))
+        .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
+            Password::try_from(password).expect("Password too long"),
+        ))
+}
+
+/// The setup network: open, named after the device.
+pub fn access_point_config(ssid: &str) -> AccessPointConfig {
+    AccessPointConfig::default().with_ssid(Ssid::try_from(ssid).expect("SSID too long"))
+}
+
+fn stored_station_config(settings: &PersistSettings) -> StationConfig {
+    station_config(
+        settings.wifi_ssid.as_deref().unwrap_or_default(),
+        settings.wifi_password.as_deref().unwrap_or_default(),
+    )
 }
 
 #[embassy_executor::task]
@@ -216,7 +225,7 @@ async fn wifi_net_task(
                 controller
                     .lock()
                     .await
-                    .set_config(&Config::Station(station_config(&settings)))
+                    .set_config(&Config::Station(stored_station_config(&settings)))
                     .expect("Failed to set STA config");
                 connect_ap();
             }
@@ -253,7 +262,7 @@ async fn start_setup_network(
         .await
         .set_config(&Config::AccessPointStation(
             StationConfig::default(),
-            AccessPointConfig::default().with_ssid(ap_ssid.as_str()),
+            access_point_config(ap_ssid),
         ))
         .expect("Failed to set AP+STA config");
 }
@@ -300,6 +309,6 @@ async fn wifi_conn_task(controller: &'static SharedWifiController) {
 }
 
 #[embassy_executor::task(pool_size = 2)]
-async fn net_stack_task(mut runner: Runner<'static, Interface<'static>>) {
+async fn net_stack_task(mut runner: Runner<'static, Interface>) {
     runner.run().await
 }

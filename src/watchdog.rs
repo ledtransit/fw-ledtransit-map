@@ -10,7 +10,7 @@ use defmt::warn;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use esp_hal::{
-    peripherals::LPWR,
+    peripherals::RTC_TIMER,
     rtc_cntl::{Rtc, Rwdt, RwdtStage},
 };
 
@@ -28,8 +28,8 @@ pub fn heartbeat() {
     HEARTBEAT.store(count.wrapping_add(1), Ordering::Relaxed);
 }
 
-pub fn spawn(spawner: Spawner, lpwr: LPWR<'static>) {
-    let mut rwdt = Rtc::new(lpwr).rwdt;
+pub fn spawn(spawner: Spawner, rtc_timer: RTC_TIMER<'static>) {
+    let mut rwdt = Rtc::new(rtc_timer).rwdt;
     rwdt.set_timeout(RwdtStage::Stage0, TIMEOUT);
     rwdt.enable(); // Stage 0 resets the system
     rwdt.feed();

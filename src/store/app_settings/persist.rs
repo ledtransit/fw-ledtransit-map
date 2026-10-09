@@ -2,7 +2,6 @@
 use alloc::vec;
 use defmt::{debug, info, warn};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-use embedded_storage::{ReadStorage, Storage};
 use esp_hal::rom::crc::crc32_le;
 use esp_storage::FlashStorage;
 use serde::{Deserialize, Serialize};

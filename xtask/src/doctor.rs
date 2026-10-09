@@ -74,6 +74,25 @@ const TOOLS: &[Tool] = &[
             check_output: None,
         }],
     },
+    // The TLS library mbedtls is built from source for the firmware
+    Tool {
+        name: "C toolchain for mbedtls",
+        is_required: true,
+        checks: &[
+            Check {
+                description: "clang supports RISC-V",
+                command: "clang --print-targets",
+                suggested_fix: "Install LLVM with RISC-V support and put its clang first in the PATH (macOS: 'brew install llvm', Apple's clang can't build for RISC-V)",
+                check_output: Some(has_riscv_clang_target),
+            },
+            Check {
+                description: "cmake is installed",
+                command: "cmake --version",
+                suggested_fix: "Install cmake (macOS: 'brew install cmake', Ubuntu: 'apt install cmake')",
+                check_output: None,
+            },
+        ],
+    },
 ];
 
 pub fn run() -> Result<()> {
@@ -127,6 +146,10 @@ fn passes(check: &Check) -> Result<bool> {
 
 fn has_stable_toolchain(output: &str) -> bool {
     output.contains("stable")
+}
+
+fn has_riscv_clang_target(output: &str) -> bool {
+    output.contains("riscv32")
 }
 
 fn has_riscv_target(output: &str) -> bool {

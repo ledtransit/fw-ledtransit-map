@@ -22,7 +22,7 @@ pub async fn init(flash_peri: FLASH<'static>) -> &'static SharedFlashStorage {
 pub fn with_data_partition<'d, R>(
     flash_store: &mut FlashStorage<'d>,
     label: &str,
-    f: impl FnOnce(&mut FlashRegion<'_, FlashStorage<'d>>) -> R,
+    f: impl FnOnce(&mut FlashRegion<'_, 'd>) -> R,
 ) -> R {
     let mut pt_mem = [0u8; PARTITION_TABLE_MAX_LEN];
     let partition_table = partitions::read_partition_table(flash_store, &mut pt_mem).unwrap();
@@ -33,6 +33,6 @@ pub fn with_data_partition<'d, R>(
                 && part.label_as_str() == label
         })
         .unwrap_or_else(|| panic!("Partition {} not found", label))
-        .as_embedded_storage(flash_store);
+        .as_flash_region(flash_store);
     f(&mut storage)
 }

@@ -8,7 +8,10 @@ RUN apt-get update && \
         build-essential \
         curl \
         protobuf-compiler \
-        ca-certificates && \
+        ca-certificates \
+        clang \
+        libclang-dev \
+        cmake && \
     rm -rf /var/lib/apt/lists/* && \
     curl https://sh.rustup.rs -sSf | sh -s -- -y && \
     rustup toolchain install stable --component rust-src && \

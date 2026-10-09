@@ -18,13 +18,15 @@ The firmware is written in Rust using the `esp-hal` and `embassy` no_std/async f
 
 ## Toolchain installation
 
-Required tools: Rust toolchain (1.88 or newer) with the `riscv32imc` target, `probe-rs` dev tools, `espflash` flasher, `protoc` protobuf compiler.
+Required tools: Rust toolchain (1.88 or newer) with the `riscv32imc` target, `probe-rs` dev tools, `espflash` flasher, `protoc` protobuf compiler, and `clang` (with RISC-V support) and `cmake` to build the TLS library mbedtls.
 
 <details open>
 <summary>macOS Homebrew</summary>
 
 ```sh
-brew install protobuf
+brew install protobuf llvm cmake
+# Apple's clang can't build for RISC-V: put Homebrew's LLVM first in the PATH (e.g. in ~/.zshrc)
+export PATH="$(brew --prefix llvm)/bin:$PATH"
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup toolchain install stable --component rust-src
 rustup target add riscv32imc-unknown-none-elf
@@ -38,7 +40,7 @@ cargo install espflash --locked
 <summary>Linux Ubuntu</summary>
 
 ```sh
-apt update && apt install -y curl build-essential protobuf-compiler ca-certificates
+apt update && apt install -y curl build-essential protobuf-compiler ca-certificates clang libclang-dev cmake
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup toolchain install stable --component rust-src
 rustup target add riscv32imc-unknown-none-elf
@@ -63,7 +65,7 @@ cargo xtask doctor
 
 Rebuilding the bootloader (`cargo xtask bootloader`) additionally requires [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/stable/esp32c3/get-started/) with the `IDF_PATH` environment variable set. The repository already contains the built bootloader, so this is only needed when changing it.
 
-For IDE integration, you may also want to install the [rust-analyzer](https://github.com/rust-lang/rust-analyzer) extension. Set the `PROTOC` environment variable to the path of the `protoc` binary and configure the default build target to `riscv32imc-unknown-none-elf` (for an example see [.vscode/settings.json](.vscode/settings.json)).
+For IDE integration, you may also want to install the [rust-analyzer](https://github.com/rust-lang/rust-analyzer) extension. Configure the default build target to `riscv32imc-unknown-none-elf`, and make sure rust-analyzer finds `protoc`, `clang` (with RISC-V support) and `cmake`: an editor started from the macOS Dock doesn't get your shell's `PATH` (for an example see [.vscode/settings.json](.vscode/settings.json)).
 
 ## Build the firmware
 

@@ -30,9 +30,7 @@ use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
-use esp_hal::{
-    clock::CpuClock, interrupt::software::SoftwareInterruptControl, ram, timer::timg::TimerGroup,
-};
+use esp_hal::{clock::CpuClock, ram, timer::timg::TimerGroup};
 
 use crate::{
     buttons::Button,
@@ -59,8 +57,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Start RTOS
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let swi = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, swi.software_interrupt0);
+    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
     let flash_store = store::init(peripherals.FLASH).await;
 
@@ -76,7 +73,7 @@ async fn main(spawner: Spawner) -> ! {
     buttons::spawn(spawner, peripherals.GPIO4.into(), Button::Down);
     renderer::spawn(spawner);
     painter::spawn(spawner);
-    watchdog::spawn(spawner, peripherals.LPWR);
+    watchdog::spawn(spawner, peripherals.RTC_TIMER);
     wifi_net::spawn(spawner, peripherals.WIFI, peripherals.SHA, flash_store).await;
     app_settings::spawn(spawner, flash_store);
 

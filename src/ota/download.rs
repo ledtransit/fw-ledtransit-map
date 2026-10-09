@@ -8,13 +8,11 @@ use edge_nal_tls::TlsConnector;
 use embassy_net::{IpAddress, Stack, dns};
 use embassy_time::{Duration, Instant, with_timeout};
 use embedded_io_async::Read;
-use embedded_storage::{ReadStorage, Storage};
 use esp_bootloader_esp_idf::{
     ota_updater::OtaUpdater,
     partitions::{self, FlashRegion, PARTITION_TABLE_MAX_LEN},
 };
 use esp_hal::sha::{Sha, Sha256};
-use esp_storage::FlashStorage;
 use mbedtls_rs::{Certificate, ClientSessionConfig, Tls};
 use nb::block;
 use nourl::{Url, UrlScheme};
@@ -37,7 +35,7 @@ const HTTP_BUFFER_SIZE: usize = 512;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(10);
 
 type HttpsConnection<'a> = client::Connection<'a, TlsConnector<'a, Tcp<'a>>, HTTP_MAX_NUM_HEADERS>;
-type FlashStorageRegion<'a> = FlashRegion<'a, FlashStorage<'static>>;
+type FlashStorageRegion<'a> = FlashRegion<'a, 'static>;
 
 /// Downloads the image into the inactive bank and checks it against the
 /// signed hash, read back from flash.

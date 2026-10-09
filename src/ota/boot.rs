@@ -12,7 +12,6 @@ use esp_bootloader_esp_idf::{
     ota::OtaImageState, ota_updater::OtaUpdater, partitions::AppPartitionSubType,
     partitions::PARTITION_TABLE_MAX_LEN,
 };
-use esp_storage::FlashStorage;
 
 use crate::store::{SharedFlashStorage, app_settings};
 
@@ -20,7 +19,7 @@ use crate::store::{SharedFlashStorage, app_settings};
 /// the device reboots, which makes the bootloader roll back
 const BOOT_CHECK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
-type OtaFlashUpdater<'a> = OtaUpdater<'a, FlashStorage<'static>>;
+type OtaFlashUpdater<'a> = OtaUpdater<'a, 'static>;
 
 // Separate from the update events: must not replace a pending one, nor be replaced
 pub(super) static OTA_CONFIRM: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -110,11 +109,7 @@ pub(super) async fn set_factory_boot_partition(flash_store: &SharedFlashStorage)
         info!("Set factory partition as boot partition");
         // Clears both OTA data entries. Only marking the running image aborted
         // would boot the other bank instead, if that holds a valid (older) image
-        ota.ota_data()
-            .and_then(|mut ota_data| {
-                ota_data.set_current_app_partition(AppPartitionSubType::Factory)
-            })
-            .unwrap();
+        ota.reset_data().unwrap();
     })
     .await;
 }

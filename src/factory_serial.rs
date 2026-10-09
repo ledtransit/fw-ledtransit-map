@@ -12,7 +12,7 @@ use embedded_io_async::{Read, Write};
 use esp_hal::{
     Async,
     peripherals::USB_DEVICE,
-    usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagTx},
+    usb::usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagTx},
 };
 
 use crate::{

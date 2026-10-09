@@ -11,9 +11,7 @@ use edge_net::http::{
 };
 use embassy_time::{Duration, Timer};
 use embedded_io_async::{Read, Write};
-use esp_radio::wifi::{
-    AuthenticationMethod, Config, ap::AccessPointConfig, scan::ScanConfig, sta::StationConfig,
-};
+use esp_radio::wifi::{AuthenticationMethod, Config, scan::ScanConfig};
 use serde::{Deserialize, Serialize};
 
 use super::static_files::{self, StaticFile};
@@ -211,10 +209,8 @@ where
         .lock()
         .await
         .set_config(&Config::AccessPointStation(
-            StationConfig::default()
-                .with_ssid(request.ssid.as_str())
-                .with_password(request.password.as_str().into()),
-            AccessPointConfig::default().with_ssid(ap_ssid),
+            wifi_net::station_config(&request.ssid, &request.password),
+            wifi_net::access_point_config(ap_ssid),
         ));
     if let Err(e) = set_config_result {
         info!("Set config error: {:?}", e);

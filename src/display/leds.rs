@@ -10,7 +10,6 @@ use embassy_sync::{
 };
 use embassy_time::{Duration, with_timeout};
 use esp_hal::{
-    clock::Clocks,
     gpio::{AnyPin, Level},
     peripherals::RMT,
     ram,
@@ -271,6 +270,7 @@ async fn processed_leds(led_buffer: &[RGB8]) -> impl Iterator<Item = RGB8> + '_ 
 #[embassy_executor::task]
 async fn led_driver_task(gpio: AnyPin<'static>, rmt_peri: RMT<'static>) {
     let rmt = Rmt::new(rmt_peri, Rate::from_mhz(80)).expect("Failed to initialize RMT");
+    let clock_mhz = rmt.frequency().as_mhz();
     let rmt_tx_config = TxChannelConfig::default()
         .with_clk_divider(1)
         .with_idle_output_level(Level::Low)
@@ -281,7 +281,6 @@ async fn led_driver_task(gpio: AnyPin<'static>, rmt_peri: RMT<'static>) {
         .configure_tx(&rmt_tx_config)
         .unwrap()
         .with_pin(gpio);
-    let clock_mhz = Clocks::get().apb_clock.as_mhz();
     let mut led_driver = LedDriver::new(rmt_channel, ws2812_pulses(clock_mhz));
 
     // Clear all LEDs

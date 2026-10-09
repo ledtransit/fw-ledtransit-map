@@ -1,7 +1,6 @@
 // Device info in its own flash partition: product and firmware of the
 // running image, read by tools over USB to detect the device
 use defmt::info;
-use embedded_storage::Storage;
 use esp_storage::FlashStorage;
 use serde::{Deserialize, Serialize};
 
