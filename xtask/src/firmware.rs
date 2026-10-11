@@ -78,7 +78,6 @@ pub fn monitor() -> Result<()> {
         "attach",
         "--chip",
         "esp32c3",
-        "--preverify",
         "--always-print-stacktrace",
         "--no-location",
         "--catch-hardfault",
