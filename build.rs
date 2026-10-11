@@ -18,6 +18,8 @@ fn main() {
             ".",
             "#[derive(Deserialize,Serialize)] #[serde(rename_all = \"snake_case\")]",
         )
+        // Large and rare: boxed, so every message isn't as large
+        .boxed(".ledtransit_client.ClientMessage.payload.profiling")
         .compile_protos(
             &["assets/proto_schema/ledtransit_client.proto"],
             &["assets/proto_schema"],

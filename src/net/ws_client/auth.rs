@@ -15,6 +15,7 @@ use super::{Connection, WsClientError};
 use crate::{
     config::{self, CONFIG},
     device_auth::{self, DeviceAuthError, KeySlot},
+    profiling,
     store::app_settings,
 };
 
@@ -65,6 +66,7 @@ pub async fn claim(
     info!("Claiming device with provisioning token");
     let hardware_id = config::get_hardware_id_str();
     let challenge = fetch_challenge(conn, host, &hardware_id).await?;
+    profiling::once!(claim_challenge_received);
     let proof = device_auth::claim_proof(
         challenge.key_slot,
         &challenge.nonce,
@@ -122,6 +124,7 @@ pub async fn claim(
     })
     .await;
     info!("Device claimed");
+    profiling::once!(claim_accepted);
     Ok(())
 }
 
@@ -134,10 +137,12 @@ pub async fn websocket_authenticate(
 ) -> Result<(), WsClientError> {
     let hardware_id = config::get_hardware_id_str();
     let challenge = fetch_challenge(conn, host, &hardware_id).await?;
+    profiling::once!(gateway_challenge_received);
     let proof = device_auth::connect_proof(challenge.key_slot, &challenge.nonce, &hardware_id)
         .await
         .map_err(map_device_auth_error)?;
     let proof_hex = device_auth::to_hex(&proof);
+    profiling::once!(gateway_proof_computed);
 
     let mut nonce = [0u8; NONCE_LEN];
     for byte in nonce.iter_mut() {

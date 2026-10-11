@@ -8,7 +8,7 @@ use embassy_sync::{
     mutex::{Mutex, MutexGuard},
     signal::Signal,
 };
-use embassy_time::{Duration, Instant, with_deadline, with_timeout};
+use embassy_time::{Duration, Instant, with_deadline};
 use esp_hal::{
     gpio::AnyPin,
     peripherals::{DMA_CH0, SPI2},
@@ -43,6 +43,9 @@ static LED_FRAME: ConstStaticCell<[u8; led_driver::frame_len(LED_COUNT)]> =
 // (not each frame)
 const FRAME_RATE_FRAMES: usize = 16;
 const FRAME_RATE_STORE_INTERVAL: Duration = Duration::from_secs(1);
+
+// Longer than the longest pixel animation ending by itself (the startup, 4 s)
+const PIXELS_ANIMATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 const SHORT_INTERVAL: Duration = Duration::from_millis(200);
 const MEDIUM_INTERVAL: Duration = Duration::from_millis(500);
@@ -205,13 +208,16 @@ pub async fn set_pixels(pixels: LedPixels) {
     animations::start_pixels_animation(event);
 }
 
+/// Waits until the pixel animation just started ended (or was replaced),
+/// canceling it after a while: it never keeps running next to what's drawn
+/// next.
 pub async fn wait_pixels_animation_complete() {
-    with_timeout(
-        Duration::from_secs(3),
-        animations::wait_until_pixels_animation_complete(),
-    )
-    .await
-    .ok();
+    animations::wait_until_pixels_animation_ended(PIXELS_ANIMATION_TIMEOUT).await;
+}
+
+/// Whether a pixel animation has the pixels: nothing else may draw them.
+pub fn is_pixels_animation_running() -> bool {
+    animations::is_pixels_animation_running()
 }
 
 pub async fn set_status_pixel(color: RGB8) {

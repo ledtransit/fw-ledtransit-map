@@ -13,6 +13,7 @@ use crate::{
         renderer::{RENDERER_FPS, RenderedDisruption, RenderedVehicle},
     },
     net::ws_client::client_proto::{DeviceConfig, DisruptionInterval, DisruptionMode, RenderMode},
+    profiling,
     store::{app_settings, transit_data},
     time,
     util::{lerp, rgb8_brightness, rgb8_lerp, rgb8_max},
@@ -80,8 +81,10 @@ async fn draw_frame() {
 
     // Before the first frame: fade out what was shown before
     if rendered_state.drawn_first_frame_at_instant_ms.is_none() {
+        profiling::once!(painter_fade_out_started);
         leds::set_pixels(LedPixels::FadeOut).await;
         leds::wait_pixels_animation_complete().await;
+        profiling::once!(painter_fade_out_done);
         store.state.rendered_state.drawn_first_frame_at_instant_ms = Some(now_instant_ms as u32);
     }
 
@@ -90,6 +93,11 @@ async fn draw_frame() {
         return;
     };
     if !settings.light_on {
+        profiling::once!(first_transit_data_paint_skipped);
+        return;
+    }
+    // An animation (e.g. identify) has the pixels meanwhile
+    if leds::is_pixels_animation_running() {
         return;
     }
 
@@ -128,6 +136,7 @@ async fn draw_frame() {
 
     store.stats.num_pixels_on = pixel_buf.iter().filter(|pixel| **pixel != BLACK).count() as u32;
     leds::update();
+    profiling::once!(first_transit_data_painted);
 }
 
 async fn go_offline(light_on: bool) {

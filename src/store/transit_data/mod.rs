@@ -14,6 +14,7 @@ use crate::{
         self,
         client_proto::{LineConfig, TransitData},
     },
+    profiling,
     store::app_settings,
     time,
     util::NonMax,
@@ -98,8 +99,11 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
         stats,
     });
     drop(store);
+    profiling::once!(first_transit_data_stored);
 
     update_line_configs().await;
+    // Shown right away, not with the renderer's next frame (up to a second)
+    renderer::render_now();
 }
 
 // The vehicles keep their rendered state from the previous data, by trip ID

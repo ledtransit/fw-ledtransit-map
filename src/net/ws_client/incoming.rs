@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     display::leds::{self, LedPixels},
-    ota,
+    ota, profiling,
     store::{
         app_settings::{self, persist::PersistSettings},
         transit_data,
@@ -52,6 +52,7 @@ pub async fn handle_message(payload: Payload, payload_len: usize) {
 
 // World time, as offsets to the uptime
 async fn on_server_info(server_info: ServerInfo) {
+    profiling::once!(first_server_info_received);
     let changed = app_settings::session::update_settings_changed(|set| {
         let uptime_secs = Instant::now().as_secs() as u32;
         set.unix_epoch_offset_secs = server_info.unix_timestamp.wrapping_sub(uptime_secs);
@@ -94,6 +95,7 @@ async fn on_status(status: DeviceStatus) {
 }
 
 async fn on_config(config: DeviceConfig) {
+    profiling::once!(first_config_received);
     let has_scheduled_update = app_settings::session::get_settings()
         .await
         .auto_update_scheduled_unix_timestamp
@@ -212,6 +214,7 @@ pub(super) async fn on_command_confirmed(command: DeviceCommand) {
 }
 
 async fn on_transit_data(data: TransitData, payload_len: usize) {
+    profiling::once!(first_transit_data_decoded);
     info!(
         "WS: Received transit data update: {} lines, {} stops, {} vehicles, {} disruptions",
         data.lines.len(),
@@ -220,6 +223,7 @@ async fn on_transit_data(data: TransitData, payload_len: usize) {
         data.disruptions.len()
     );
     transit_data::on_data(data, payload_len).await;
+    profiling::once!(first_line_configs_updated);
 
     // Received, decoded and processed transit data: the boot check passed
     ota::confirm_boot();

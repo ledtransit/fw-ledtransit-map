@@ -18,6 +18,7 @@ mod display;
 mod factory_serial;
 mod net;
 mod ota;
+mod profiling;
 mod store;
 mod time;
 mod trace;
@@ -46,6 +47,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
+    profiling::once!(main_entered);
     config::init();
 
     let hal_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -59,12 +61,16 @@ async fn main(spawner: Spawner) -> ! {
     // Start RTOS
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
+    profiling::once!(rtos_started);
+    profiling::spawn(spawner);
 
     let flash_store = store::init(peripherals.FLASH).await;
+    profiling::once!(settings_loaded);
 
     // Device keys, for authenticating to the gateway (and the production
     // self-test over USB serial)
     device_auth::init(peripherals.HMAC).await;
+    profiling::once!(device_keys_checked);
     factory_serial::spawn(spawner, peripherals.USB_DEVICE);
 
     // Spawn Embassy tasks taking peripheral ownership as needed
@@ -80,6 +86,7 @@ async fn main(spawner: Spawner) -> ! {
     renderer::spawn(spawner);
     painter::spawn(spawner);
     watchdog::spawn(spawner, peripherals.RTC_TIMER);
+    profiling::once!(tasks_spawned);
     wifi_net::spawn(spawner, peripherals.WIFI, peripherals.SHA, flash_store).await;
     app_settings::spawn(spawner, flash_store);
 
@@ -93,6 +100,7 @@ async fn main(spawner: Spawner) -> ! {
         CONFIG.fw_version.patch,
         if CONFIG.fw_version.beta { "-beta" } else { "" }
     );
+    profiling::once!(app_initialized);
 
     leds::set_status(LedStatus::Idle);
     trace::init_on_boot();
@@ -104,6 +112,7 @@ async fn main(spawner: Spawner) -> ! {
     if is_provisioned {
         info!("WiFi is provisioned, attempting to connect to AP");
         wifi_net::connect_ap();
+        profiling::once!(wifi_connect_requested);
     } else {
         info!("No WiFi credentials or not claimed, entering provisioning mode");
         wifi_net::start_provisioning().await;

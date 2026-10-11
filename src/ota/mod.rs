@@ -24,6 +24,7 @@ use mbedtls_rs::{Certificate, SessionError, Tls};
 use crate::{
     display::leds::{self, LedStatus},
     net::ws_client::{self, WsClientError, client_proto::DeviceUpdate},
+    profiling,
     store::{SharedFlashStorage, app_settings, transit_data},
     time, trace,
 };
@@ -135,6 +136,7 @@ async fn ota_task(
         {
             Either3::First(()) => {
                 boot::confirm_current_partition(flash_store).await;
+                profiling::once!(boot_confirmed);
                 continue;
             }
             Either3::Second(()) => {

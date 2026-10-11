@@ -25,7 +25,7 @@ use crate::{
     display::leds::{self, LedPixels, LedStatus},
     mk_static,
     net::{provisioning, ws_client},
-    ota,
+    ota, profiling,
     store::{
         SharedFlashStorage,
         app_settings::{self, persist::PersistSettings},
@@ -87,6 +87,7 @@ pub async fn spawn(
             .with_rx_ba_win(4),
     )
     .unwrap();
+    profiling::once!(wifi_radio_initialized);
     let wifi_ap_device = Interface::access_point();
     let wifi_sta_device = Interface::station();
 
@@ -135,6 +136,7 @@ pub async fn spawn(
     let ca_cert = mk_static!(Certificate<'static>, {
         Certificate::new(X509::PEM(CA_BUNDLE)).expect("Failed to parse CA bundle")
     });
+    profiling::once!(tls_initialized);
 
     spawner.spawn(net_stack_task(ap_runner).unwrap());
     spawner.spawn(net_stack_task(sta_runner).unwrap());
@@ -155,6 +157,7 @@ pub async fn spawn(
         .await
         .set_config(&Config::Station(stored_station_config(&settings)))
         .expect("Failed to set STA config");
+    profiling::once!(station_configured);
 
     spawner.spawn(wifi_net_task(shared_controller, device_name).unwrap());
     spawner.spawn(wifi_conn_task(shared_controller).unwrap());
@@ -303,10 +306,13 @@ async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
         return true;
     }
 
+    profiling::count!(wifi_connect_attempts);
+    profiling::once!(wifi_connect_started);
     let result = controller.lock().await.connect_async().await;
     match result {
-        Ok(_) => {
-            info!("WiFi connected successfully");
+        Ok(info) => {
+            info!("WiFi connected successfully (channel {})", info.channel);
+            profiling::once!(wifi_connected);
             PROVISIONING.store(false, Ordering::Relaxed);
             true
         }

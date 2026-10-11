@@ -1,5 +1,5 @@
 // Messages to the gateway, encoded
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use embassy_time::Instant;
 use prost::Message;
 
@@ -11,6 +11,7 @@ use crate::{
     config::CONFIG,
     display::leds,
     net::wifi_net::SharedWifiController,
+    profiling,
     store::{app_settings, transit_data},
     time, trace,
 };
@@ -24,6 +25,7 @@ fn encode(payload: Payload) -> Vec<u8> {
 }
 
 pub async fn status() -> Vec<u8> {
+    profiling::once!(first_status_sent);
     let persist_settings = app_settings::persist::get_settings().await;
     let wifi_ssid: String = persist_settings
         .wifi_ssid
@@ -41,6 +43,11 @@ pub async fn status() -> Vec<u8> {
             .map(|pending| pending.command as i32),
         is_remote_control_enabled: persist_settings.remote_control_enabled,
     }))
+}
+
+/// The boot profiling, once it's finished (only the first time).
+pub fn profiling() -> Option<Vec<u8>> {
+    profiling::take_finished().map(|profiling| encode(Payload::Profiling(Box::new(profiling))))
 }
 
 pub async fn config() -> Vec<u8> {

@@ -14,6 +14,7 @@ use smart_leds::colors::BLACK;
 
 use crate::{
     net::ws_client::client_proto::{DeviceConfig, Line, LineConfig},
+    profiling,
     store::{app_settings, transit_data},
     trace,
     util::NonMax,
@@ -129,6 +130,7 @@ async fn renderer_task() {
             // only when the transit data or the config changed
             if is_disruptions_render_pending().await {
                 disruptions::render_disruptions().await;
+                profiling::once!(first_disruptions_rendered);
             }
         }
 

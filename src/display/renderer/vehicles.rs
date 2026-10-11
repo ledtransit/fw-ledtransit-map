@@ -21,6 +21,7 @@ use crate::{
             VehicleMovement, ViaStop,
         },
     },
+    profiling,
     store::{app_settings, transit_data},
     time, trace,
     util::{NonMax, lerp, rgb8_from_packed},
@@ -150,6 +151,7 @@ pub(super) async fn render_vehicles() {
     store.stats.num_vehicles_available = num_vehicles_available;
     store.stats.num_vehicles_visible = num_vehicles_visible;
     store.stats.num_vehicles_visible_real_time = num_vehicles_visible_real_time;
+    profiling::once!(first_transit_data_rendered);
 }
 
 // Share of vehicles with real-time data (a delay on any segment)

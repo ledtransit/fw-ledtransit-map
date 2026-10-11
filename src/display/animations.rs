@@ -1,5 +1,7 @@
 // LED animations of the status LED and the map's pixels, each running until
 // done or canceled by the next one
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -20,10 +22,19 @@ use crate::{
 static LED_STATUS_ANIM_SIGNAL: Signal<CriticalSectionRawMutex, LedStatusAnimationEvent> =
     Signal::new();
 static LED_STATUS_ANIM_CANCEL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-static LED_PIXELS_ANIM_SIGNAL: Signal<CriticalSectionRawMutex, LedPixelsAnimationEvent> =
-    Signal::new();
+static LED_PIXELS_ANIM_SIGNAL: Signal<
+    CriticalSectionRawMutex,
+    (PixelsAnimationNumber, LedPixelsAnimationEvent),
+> = Signal::new();
 static LED_PIXELS_ANIM_CANCEL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-static LED_PIXELS_ANIM_COMPLETE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+// The pixel animations by number: the latest started, and the latest that
+// ended (done or canceled). One running has the pixels, nothing else may draw
+// them meanwhile. Load and store only (no atomic read-modify-write on this
+// target): only the tasks of the one executor write them
+static PIXELS_ANIM_STARTED: AtomicU32 = AtomicU32::new(0);
+static PIXELS_ANIM_ENDED: AtomicU32 = AtomicU32::new(0);
+
+type PixelsAnimationNumber = u32;
 
 const ANIM_FPS: u64 = 30;
 const FRAME_DURATION: Duration = Duration::from_millis(1000 / ANIM_FPS);
@@ -55,7 +66,9 @@ pub fn start_status_animation(event: LedStatusAnimationEvent) {
 }
 
 pub fn start_pixels_animation(event: LedPixelsAnimationEvent) {
-    LED_PIXELS_ANIM_SIGNAL.signal(event);
+    let number = PIXELS_ANIM_STARTED.load(Ordering::Relaxed).wrapping_add(1);
+    PIXELS_ANIM_STARTED.store(number, Ordering::Relaxed);
+    LED_PIXELS_ANIM_SIGNAL.signal((number, event));
 }
 
 pub fn cancel_status_animation() {
@@ -66,8 +79,26 @@ pub fn cancel_pixels_animation() {
     LED_PIXELS_ANIM_CANCEL.signal(());
 }
 
-pub async fn wait_until_pixels_animation_complete() {
-    LED_PIXELS_ANIM_COMPLETE.wait().await;
+pub fn is_pixels_animation_running() -> bool {
+    PIXELS_ANIM_ENDED.load(Ordering::Relaxed) != PIXELS_ANIM_STARTED.load(Ordering::Relaxed)
+}
+
+/// Waits until the latest pixel animation ended, or another one replaced it.
+/// One still running after the timeout is canceled: it never keeps drawing
+/// next to what's drawn after it.
+pub async fn wait_until_pixels_animation_ended(timeout: Duration) {
+    let number = PIXELS_ANIM_STARTED.load(Ordering::Relaxed);
+    let deadline = Instant::now() + timeout;
+    while PIXELS_ANIM_ENDED.load(Ordering::Relaxed) != number
+        && PIXELS_ANIM_STARTED.load(Ordering::Relaxed) == number
+    {
+        if Instant::now() >= deadline {
+            cancel_pixels_animation();
+            return;
+        }
+        // Not a signal: it could wake only one of several waiters
+        Timer::after(FRAME_DURATION).await;
+    }
 }
 
 #[embassy_executor::task]
@@ -93,9 +124,9 @@ async fn led_status_anim_task() {
 #[embassy_executor::task]
 async fn led_pixels_anim_task() {
     loop {
-        let event = LED_PIXELS_ANIM_SIGNAL.wait().await;
+        let (number, event) = LED_PIXELS_ANIM_SIGNAL.wait().await;
         LED_PIXELS_ANIM_CANCEL.reset();
-        let result = match event {
+        _ = match event {
             LedPixelsAnimationEvent::PlayStartup(color) => play_startup(color).await,
             LedPixelsAnimationEvent::ProgressPercent(progress) => {
                 show_progress(progress).await;
@@ -106,9 +137,7 @@ async fn led_pixels_anim_task() {
             LedPixelsAnimationEvent::TestMode => play_test_mode().await,
             LedPixelsAnimationEvent::DemoMode => play_demo_mode().await,
         };
-        if result.is_ok() {
-            LED_PIXELS_ANIM_COMPLETE.signal(());
-        }
+        PIXELS_ANIM_ENDED.store(number, Ordering::Relaxed);
     }
 }
 
@@ -242,18 +271,7 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
         {
             let mut pixels = leds::get_mut_pixel_buffer().await;
 
-            // Layer 0: Draw spinner with trail
-            for (i, &pixel_idx) in special_indices.iter().enumerate() {
-                let distance =
-                    (spinner_current + num_special as f32 - i as f32) % num_special as f32;
-                let brightness = brightness_percent.saturating_sub(
-                    ((brightness_percent as f32 * distance)
-                        / (trail_length_pct * num_special as f32)) as usize,
-                );
-                pixels[pixel_idx as usize] = scaled_truncating(color, brightness);
-            }
-
-            // Layer 1: Draw delayed explosion
+            // Layer 0: Draw delayed explosion
             if step * (1000 / ANIM_FPS) >= explosion_delay.as_millis() {
                 let explosion_progress = animation_progress
                     - explosion_delay.as_millis() as f32 / duration.as_millis() as f32;
@@ -266,6 +284,17 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
                         as usize;
                     *pixel = scaled_truncating(color, pixel_brightness);
                 }
+            }
+
+            // Layer 1: Draw spinner with trail
+            for (i, &pixel_idx) in special_indices.iter().enumerate() {
+                let distance =
+                    (spinner_current + num_special as f32 - i as f32) % num_special as f32;
+                let brightness = brightness_percent.saturating_sub(
+                    ((brightness_percent as f32 * distance)
+                        / (trail_length_pct * num_special as f32)) as usize,
+                );
+                pixels[pixel_idx as usize] = scaled_truncating(color, brightness);
             }
         }
 
@@ -293,9 +322,10 @@ async fn show_progress(progress: u8) {
     leds::update();
 }
 
-// From full brightness to off in about a second
+// From full brightness to off in about half a second. Also ends if something
+// else lit pixels meanwhile: by then, the pixels it dimmed are off
 async fn fade_out() -> Result<(), Canceled> {
-    const FADE_STEP: u64 = 8;
+    const FADE_STEP: u64 = 16;
     let mut clock = FrameClock::new();
     let mut faded_frames = 0;
     loop {
@@ -313,7 +343,7 @@ async fn fade_out() -> Result<(), Canceled> {
             .await
             .iter()
             .all(|pixel| pixel.r == 0 && pixel.g == 0 && pixel.b == 0);
-        if all_off {
+        if all_off || FADE_STEP * faded_frames >= u8::MAX as u64 {
             return Ok(());
         }
 

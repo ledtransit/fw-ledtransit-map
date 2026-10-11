@@ -14,6 +14,7 @@ message ClientMessage {
         DeviceErrors errors = 9; // Client -> Server [N]
         TransitData transit_data = 10; // Server -> Client [N]
         Echo echo = 11; // Server <-> Client [N]
+        DeviceProfiling profiling = 12; // Client -> Server [N]
     }
 }
 
@@ -132,6 +133,69 @@ enum DeviceCommand {
     DEVICE_COMMAND_TEST_LEDS = 6;
     DEVICE_COMMAND_RECONNECT = 7;
     DEVICE_COMMAND_DISABLE_REMOTE_CONTROL = 8;
+}
+
+// [once] Boot profiling for development, from reset to the first transit data
+// painted (or its painting skipped, with the light off). Each point is the first
+// time it was reached since boot, unset if it wasn't (before profiling finished)
+message DeviceProfiling {
+    // Init
+    optional ProfilingPoint main_entered = 1; // After the bootloader
+    optional ProfilingPoint rtos_started = 2;
+    optional ProfilingPoint settings_loaded = 3;
+    optional ProfilingPoint device_keys_checked = 4;
+    optional ProfilingPoint tasks_spawned = 5;
+    optional ProfilingPoint wifi_radio_initialized = 6;
+    optional ProfilingPoint tls_initialized = 7; // CA bundle parsed
+    optional ProfilingPoint station_configured = 8;
+    optional ProfilingPoint app_initialized = 9;
+    optional ProfilingPoint wifi_connect_requested = 10;
+    // WiFi
+    optional ProfilingPoint wifi_connect_started = 11;
+    optional ProfilingPoint wifi_connected = 12; // Link up
+    optional ProfilingPoint ip_configured = 13; // DHCP done
+    // Gateway
+    optional ProfilingPoint gateway_connect_started = 14;
+    optional ProfilingPoint gateway_dns_resolved = 15;
+    optional ProfilingPoint gateway_tcp_connected = 16;
+    optional ProfilingPoint gateway_tls_client_hello_sent = 17;
+    optional ProfilingPoint gateway_tls_server_hello_received = 18; // Network and server
+    optional ProfilingPoint gateway_tls_certificate_checked = 19; // Certificate chain checked (TLS 1.2)
+    optional ProfilingPoint gateway_tls_server_flight_processed = 20; // Server key exchange signature checked (TLS 1.2)
+    optional ProfilingPoint gateway_tls_client_key_exchange_sent = 21; // Key exchange computed
+    optional ProfilingPoint gateway_tls_handshake_done = 22;
+    optional ProfilingPoint claim_challenge_received = 23; // Only the first connection after setup
+    optional ProfilingPoint claim_accepted = 24; // Only the first connection after setup
+    optional ProfilingPoint gateway_challenge_received = 25;
+    optional ProfilingPoint gateway_proof_computed = 26;
+    optional ProfilingPoint gateway_ws_established = 27;
+    optional ProfilingPoint first_status_sent = 28;
+    // First messages
+    optional ProfilingPoint first_server_info_received = 29;
+    optional ProfilingPoint first_config_received = 30;
+    optional ProfilingPoint first_transit_data_header_received = 31;
+    optional ProfilingPoint first_transit_data_payload_received = 32;
+    optional ProfilingPoint first_transit_data_cleared = 33; // Previous data freed
+    optional ProfilingPoint first_transit_data_decoded = 34;
+    optional ProfilingPoint first_transit_data_stored = 35;
+    optional ProfilingPoint first_line_configs_updated = 36;
+    optional ProfilingPoint boot_confirmed = 37; // OTA image marked valid
+    // Render and paint
+    optional ProfilingPoint painter_fade_out_started = 38;
+    optional ProfilingPoint painter_fade_out_done = 39;
+    optional ProfilingPoint first_transit_data_rendered = 40;
+    optional ProfilingPoint first_disruptions_rendered = 41;
+    optional ProfilingPoint first_transit_data_painted = 42;
+    optional ProfilingPoint first_transit_data_paint_skipped = 43; // Light off: nothing painted
+    // Attempts until profiling finished
+    required uint32 wifi_connect_attempts = 44;
+    required uint32 gateway_connect_attempts = 45;
+}
+
+message ProfilingPoint {
+    required uint64 micros_since_boot = 1;
+    required uint32 free_heap_bytes = 2;
+    required uint32 executor_stalled_micros = 3; // Since boot: how long the async executor couldn't run tasks (over 1 ms at a time), busy computing or preempted (e.g. by the WiFi driver)
 }
 
 // [on-error] Errors from client to server (error logs, panics)

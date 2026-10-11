@@ -5,6 +5,7 @@ mod confirmation;
 mod frames;
 mod incoming;
 mod outgoing;
+mod tls;
 
 use core::{
     ffi::CStr,
@@ -31,19 +32,21 @@ use embedded_io_async::ErrorKind;
 use embedded_io_async::{Read, Write};
 use envparse::parse_env;
 use esp_hal::rng::Rng;
-use mbedtls_rs::{Certificate, SessionError, Tls};
+use mbedtls_rs::{Certificate, SavedSession, SessionError, Tls};
 use prost::Message;
 use smoltcp::wire::DnsQueryType;
 
 use crate::{
-    display::leds::{self, LedStatus},
+    display::leds::{self, LedPixels, LedStatus},
     net::wifi_net::{self, SharedWifiController},
     ota,
+    profiling::{self, TimedTcp},
     store::{app_settings, transit_data},
     trace,
 };
 use client_proto::{ClientMessage, Echo, client_message::Payload};
 pub use confirmation::confirm_command;
+use tls::ResumingTls;
 
 pub mod client_proto {
     pub const VERSION: u32 = 1;
@@ -78,7 +81,8 @@ static WS_CLIENT_QUIT_SIGNAL: Signal<CriticalSectionRawMutex, Result<(), WsClien
 // way around): for a gateway that refuses TLS 1.2 (see wifi_net::tls_session_config)
 static ALLOW_TLS13: AtomicBool = AtomicBool::new(false);
 
-type HttpsConnection<'a> = client::Connection<'a, TlsConnector<'a, Tcp<'a>>, HTTP_MAX_NUM_HEADERS>;
+type HttpsConnection<'a> =
+    client::Connection<'a, ResumingTls<'a, TimedTcp<Tcp<'a>>>, HTTP_MAX_NUM_HEADERS>;
 type HttpConnection<'a> = client::Connection<'a, Tcp<'a>, HTTP_MAX_NUM_HEADERS>;
 
 type Connection<'a> = CondType<SSL_ENABLED, HttpsConnection<'a>, HttpConnection<'a>>;
@@ -96,6 +100,7 @@ enum WsClientNotify {
     Echo(Echo),
     Info,
     Pong,
+    Profiling,
 }
 
 #[derive(defmt::Format, Debug)]
@@ -161,6 +166,10 @@ pub fn send_pong() {
     try_queue_event(WsClientNotify::Pong);
 }
 
+pub fn send_profiling() {
+    try_queue_event(WsClientNotify::Profiling);
+}
+
 /// Ends the connection, with the reason to act on.
 pub fn quit(result: Result<(), WsClientError>) {
     WS_CLIENT_QUIT_SIGNAL.signal(result);
@@ -178,9 +187,12 @@ async fn ws_client_task(
     tls: &'static Tls<'static>,
     ca_cert: &'static Certificate<'static>,
 ) {
+    // The last connection's TLS session, to resume
+    let mut saved_session = None;
     loop {
         sta_stack.wait_link_up().await;
         sta_stack.wait_config_up().await;
+        profiling::once!(ip_configured);
 
         // Provisioning still finishing: the link is about to drop, a
         // connection started over it now would fail
@@ -189,6 +201,8 @@ async fn ws_client_task(
             continue;
         }
         info!("Connecting to gateway");
+        profiling::count!(gateway_connect_attempts);
+        profiling::once!(gateway_connect_started);
 
         let is_updating = app_settings::session::get_settings()
             .await
@@ -199,7 +213,7 @@ async fn ws_client_task(
             LedStatus::ConnectingServer
         });
 
-        let result = run(sta_stack, controller, tls, ca_cert).await;
+        let result = run(sta_stack, controller, tls, ca_cert, &mut saved_session).await;
         if on_connection_ended(result, sta_stack).await {
             Timer::after(RECONNECT_DELAY).await;
         }
@@ -287,25 +301,30 @@ async fn run(
     controller: &'static SharedWifiController,
     tls: &Tls<'static>,
     ca_cert: &'static Certificate<'static>,
+    saved_session: &mut Option<SavedSession>,
 ) -> Result<(), WsClientError> {
     WS_CLIENT_QUIT_SIGNAL.reset();
 
     let socket_addr = resolve_gateway(sta_stack).await?;
+    profiling::once!(gateway_dns_resolved);
     debug!("Resolved gateway to {} (SSL={})", socket_addr, SSL_ENABLED);
 
     let tcp_bufs = TcpBuffers::<TCP_BUF_POOL_SIZE, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>::new();
-    let tcp = Tcp::new(sta_stack, &tcp_bufs);
+    let tcp = TimedTcp(Tcp::new(sta_stack, &tcp_bufs));
     let host_zstr = format!("{}\0", GATEWAY_HOST);
     let server_name = CStr::from_bytes_with_nul(host_zstr.as_bytes()).unwrap();
     let allow_tls13 = ALLOW_TLS13.load(Ordering::Relaxed);
     let session_config = wifi_net::tls_session_config(ca_cert, server_name, allow_tls13);
-    let tls_connector = TlsConnector::new(tls.reference(), tcp, &session_config);
+    let tls_connector = ResumingTls::new(
+        TlsConnector::new(tls.reference(), tcp, &session_config),
+        saved_session.take(),
+    );
 
     let mut ws_rx_buf = [0u8; HTTP_WS_RX_BUF_SIZE];
     let mut conn = condval!(if SSL_ENABLED {
         HttpsConnection::new(&mut ws_rx_buf, &tls_connector, socket_addr)
     } else {
-        client::Connection::<Tcp, HTTP_MAX_NUM_HEADERS>::new(&mut ws_rx_buf, &tcp, socket_addr)
+        HttpConnection::new(&mut ws_rx_buf, &tcp.0, socket_addr)
     });
 
     let mut rng = Rng::new();
@@ -330,11 +349,23 @@ async fn run(
         );
     }
     established?;
+    profiling::once!(gateway_ws_established);
     info!("WebSocket connection established");
+
+    // Before the first transit data since boot: fade out what's shown
+    // (startup animation, demo) already, while the data is on its way. On a
+    // reconnect, the map keeps showing the data it has
+    if !transit_data::is_set().await {
+        leds::set_pixels(LedPixels::FadeOut).await;
+    }
 
     let (mut socket, buf) = conn.release();
     #[cfg(ssl_enabled)]
     let session = socket.session_mut();
+    #[cfg(ssl_enabled)]
+    {
+        *saved_session = session.save().ok();
+    }
     #[cfg(ssl_enabled)]
     let (mut rx, mut tx) = session.split().await.map_err(WsClientError::SessionError)?;
     #[cfg(not(ssl_enabled))]
@@ -422,6 +453,7 @@ where
             .await
             .map_err(WsClientError::Timeout)?
             .map_err(WsClientError::WsError)?;
+        let header_received = profiling::now();
         let payload = with_timeout(FRAME_PAYLOAD_TIMEOUT, header.recv_payload(&mut *rx, buf))
             .await
             .map_err(WsClientError::Timeout)?
@@ -429,10 +461,12 @@ where
 
         match header.frame_type {
             FrameType::Binary(_) => {
-                if payload.starts_with(&PROTO_TRANSIT_DATA_MAGIC)
-                    && !prepare_for_transit_data().await
-                {
-                    continue;
+                if payload.starts_with(&PROTO_TRANSIT_DATA_MAGIC) {
+                    profiling::once!(first_transit_data_header_received, header_received);
+                    profiling::once!(first_transit_data_payload_received);
+                    if !prepare_for_transit_data().await {
+                        continue;
+                    }
                 }
                 let message = decode_message(payload)?;
                 incoming::handle_message(message, payload.len()).await;
@@ -440,7 +474,6 @@ where
             FrameType::Ping => {
                 debug!("WS: Got ping, sending pong");
                 send_pong();
-                send_telemetry();
             }
             FrameType::Close => {
                 info!("WS: Got close frame from server");
@@ -474,6 +507,7 @@ async fn prepare_for_transit_data() -> bool {
         return false;
     }
     transit_data::clear().await;
+    profiling::once!(first_transit_data_cleared);
     // The LED test mode doesn't show transit data
     !session_settings.test_mode_active
 }
@@ -512,6 +546,10 @@ where
             WsClientNotify::Telemetry => outgoing::telemetry(controller).await,
             WsClientNotify::Echo(echo) => outgoing::echo(echo),
             WsClientNotify::Info => outgoing::info().await,
+            WsClientNotify::Profiling => match outgoing::profiling() {
+                Some(message) => message,
+                None => continue,
+            },
         };
         frames::send_binary(tx, &message, &mut rng).await?;
     }
