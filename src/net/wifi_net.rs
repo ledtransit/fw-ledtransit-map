@@ -19,7 +19,7 @@ use esp_radio::wifi::{
     AuthenticationMethodConfig, Config, ControllerConfig, Interface, Password, Ssid,
     WifiController, ap::AccessPointConfig, sta::StationConfig,
 };
-use mbedtls_rs::{Certificate, Tls, X509};
+use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion, X509};
 
 use crate::{
     display::leds::{self, LedPixels, LedStatus},
@@ -37,6 +37,8 @@ const STA_SOCKET_COUNT: usize = 4;
 const AP_GATEWAY_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 4, 1);
 const CONNECT_RETRY_DELAY: Duration = Duration::from_secs(3);
 const CONNECTION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+// Elliptic-curve operations in a row in a TLS handshake (about 10 ms for P-256)
+const TLS_ECP_MAX_OPS: u32 = 200;
 
 pub const CA_BUNDLE: &CStr = match CStr::from_bytes_with_nul(
     concat!(include_str!("../../assets/certs/ca-bundle.pem"), "\0").as_bytes(),
@@ -128,6 +130,7 @@ pub async fn spawn(
 
     // TLS for HTTPS and WSS
     let trng = mk_static!(Trng, Trng::try_new().unwrap());
+    mbedtls_rs::ecp::set_restartable_max_ops(TLS_ECP_MAX_OPS);
     let tls = mk_static!(Tls, Tls::new(trng).unwrap());
     let ca_cert = mk_static!(Certificate<'static>, {
         Certificate::new(X509::PEM(CA_BUNDLE)).expect("Failed to parse CA bundle")
@@ -187,6 +190,28 @@ fn device_name(mac_address: [u8; 6]) -> heapless::String<32> {
     )
     .expect("Failed to write SSID");
     name
+}
+
+/// TLS 1.2 unless `allow_tls13`: only there mbedtls splits the handshake's
+/// elliptic-curve math (ECDHE-ECDSA) into slices, instead of blocking
+/// everything (also the LEDs) for about a second. Connections fall back to TLS
+/// 1.3 for servers that refuse 1.2.
+pub fn tls_session_config<'a>(
+    ca_cert: &Certificate<'a>,
+    server_name: &'a CStr,
+    allow_tls13: bool,
+) -> ClientSessionConfig<'a> {
+    ClientSessionConfig {
+        ca_chain: Some(ca_cert.clone()),
+        server_name: Some(server_name),
+        max_version: (!allow_tls13).then_some(TlsVersion::Tls1_2),
+        ..ClientSessionConfig::new()
+    }
+}
+
+/// A TLS error (handshake, alert, certificate), not a network one.
+pub fn is_tls_error(error: &SessionError) -> bool {
+    matches!(error, SessionError::MbedTls(_))
 }
 
 /// The station config to connect with: WPA2 (or better) with the password.

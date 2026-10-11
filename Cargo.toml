@@ -79,10 +79,12 @@ nourl = { version = "0.1.5", features = ["defmt"] }
 # P-384 and SHA-384 for the Let's Encrypt intermediates, and ECDHE-RSA for RSA
 # server certificates. A 2 KB instead of 16 KB send buffer per connection: the
 # device only sends small records (larger writes are split), but receives full
-# 16 KB ones. Builds mbedtls from source (needs clang and cmake)
+# 16 KB ones. Restartable elliptic-curve math, so the handshake yields to the
+# other tasks. Builds mbedtls from source (needs clang and cmake)
 mbedtls-rs = { version = "0.3.0", default-features = false, features = [
   "defmt",
   "ssl-out-content-len-2048",
+  "ecp-restartable",
   "alg-rsa",
   "alg-sha512",
   "curve-secp384r1",

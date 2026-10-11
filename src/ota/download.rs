@@ -1,8 +1,11 @@
 // Download of an update image over HTTPS into the inactive bank
 use core::{ffi::CStr, net::SocketAddr, ops::DerefMut};
 
-use defmt::{debug, error, info};
-use edge_http::{Method, io::client};
+use defmt::{debug, error, info, warn};
+use edge_http::{
+    Method,
+    io::{Error as HttpError, client},
+};
 use edge_nal_embassy::{Tcp, TcpBuffers};
 use edge_nal_tls::TlsConnector;
 use embassy_futures::yield_now;
@@ -68,13 +71,37 @@ pub(super) async fn download_to_flash(
     let host_zstr = heapless::format!(64; "{}\0", host).map_err(|_| OtaError::UrlError)?;
     let server_name =
         CStr::from_bytes_with_nul(host_zstr.as_bytes()).map_err(|_| OtaError::UrlError)?;
-    let session_config = wifi_net::tls_session_config(ca_cert, server_name);
-    let tls_connector = TlsConnector::new(tls.reference(), tcp, &session_config);
-    let mut http_buf = [0u8; HTTP_BUFFER_SIZE];
-    let mut conn = HttpsConnection::new(&mut http_buf, &tls_connector, socket_addr);
 
-    let image_size = request_image(&mut conn, host, path, update).await?;
+    // TLS 1.2, and 1.3 if the server refuses it (see wifi_net::tls_session_config)
+    let mut allow_tls13 = false;
+    loop {
+        let session_config = wifi_net::tls_session_config(ca_cert, server_name, allow_tls13);
+        let tls_connector = TlsConnector::new(tls.reference(), tcp, &session_config);
+        let mut http_buf = [0u8; HTTP_BUFFER_SIZE];
+        let mut conn = HttpsConnection::new(&mut http_buf, &tls_connector, socket_addr);
 
+        let image_size = match request_image(&mut conn, host, path, update).await {
+            Err(OtaError::HttpError(HttpError::Io(error)))
+                if !allow_tls13 && wifi_net::is_tls_error(&error) =>
+            {
+                warn!("OTA: TLS error with TLS 1.2, retrying with TLS 1.3");
+                allow_tls13 = true;
+                continue;
+            }
+            result => result?,
+        };
+        return write_and_verify(conn, image_size, update, flash_store, sha).await;
+    }
+}
+
+// Writes the requested image into the inactive bank, and checks it read back
+async fn write_and_verify(
+    mut conn: HttpsConnection<'_>,
+    image_size: usize,
+    update: &DeviceUpdate,
+    flash_store: &SharedFlashStorage,
+    sha: &mut Sha<'_>,
+) -> Result<(), OtaError> {
     let mut flash_store = flash_store.lock().await;
     let mut pt_mem = [0u8; PARTITION_TABLE_MAX_LEN];
     let mut ota = OtaUpdater::new(flash_store.deref_mut(), &mut pt_mem).unwrap();

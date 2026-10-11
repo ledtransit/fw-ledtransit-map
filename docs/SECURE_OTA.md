@@ -58,8 +58,10 @@ new bank after all checks below have passed.
 
 - Images are downloaded over HTTPS only, on port 443.
 - The server certificate must be valid for the image URL's hostname, chained to
-  a root in the CA bundle compiled into the firmware (mbedtls, verification
-  required). The hostname is also sent as SNI.
+  a certificate in the CA bundle compiled into the firmware: the Let's Encrypt
+  roots and ECDSA intermediates (mbedtls, verification required). The hostname
+  is also sent as SNI.
+- TLS 1.2, or 1.3 if the server refuses 1.2.
 - Release builds can't be built without TLS.
 
 The update's security doesn't depend on TLS alone: the signature and hash

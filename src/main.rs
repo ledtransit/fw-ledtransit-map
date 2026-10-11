@@ -51,8 +51,6 @@ async fn main(spawner: Spawner) -> ! {
     let hal_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(hal_config);
 
-    esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 66320); // max reclaimed dram2_seg from bootloader
-    esp_alloc::heap_allocator!(size: 136 * 1024);
     // Reclaim RAM from bootloader, maximum value determined via:
     // riscv-none-elf-readelf -SW target/riscv32imc-unknown-none-elf/release/fw-ledtransit-map | grep dram2_uninit
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 0x10310);

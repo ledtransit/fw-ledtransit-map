@@ -5,7 +5,11 @@ mod frames;
 mod incoming;
 mod outgoing;
 
-use core::{ffi::CStr, net::SocketAddr};
+use core::{
+    ffi::CStr,
+    net::SocketAddr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use alloc::format;
 use condtype::{CondType, condval};
@@ -68,6 +72,9 @@ const FRAME_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(10);
 static WS_CLIENT_CHANNEL: Channel<CriticalSectionRawMutex, WsClientNotify, 10> = Channel::new();
 static WS_CLIENT_QUIT_SIGNAL: Signal<CriticalSectionRawMutex, Result<(), WsClientError>> =
     Signal::new();
+// After a TLS error connecting, the next attempt allows TLS 1.3 (and the other
+// way around): for a gateway that refuses TLS 1.2 (see wifi_net::tls_session_config)
+static ALLOW_TLS13: AtomicBool = AtomicBool::new(false);
 
 type HttpsConnection<'a> = client::Connection<'a, TlsConnector<'a, Tcp<'a>>, HTTP_MAX_NUM_HEADERS>;
 type HttpConnection<'a> = client::Connection<'a, Tcp<'a>, HTTP_MAX_NUM_HEADERS>;
@@ -254,6 +261,17 @@ async fn on_connection_ended(result: Result<(), WsClientError>, sta_stack: Stack
     true
 }
 
+// Failed in TLS (handshake, alert, certificate), not in the network
+#[cfg(ssl_enabled)]
+fn is_tls_error(error: &WsClientError) -> bool {
+    match error {
+        WsClientError::HttpError(edge_http::io::Error::Io(error))
+        | WsClientError::WsError(edge_ws::Error::Io(error))
+        | WsClientError::SessionError(error) => wifi_net::is_tls_error(error),
+        _ => false,
+    }
+}
+
 async fn restart_provisioning(sta_stack: Stack<'static>) {
     wifi_net::start_provisioning().await;
     if sta_stack.is_link_up() {
@@ -276,7 +294,8 @@ async fn run(
     let tcp = Tcp::new(sta_stack, &tcp_bufs);
     let host_zstr = format!("{}\0", GATEWAY_HOST);
     let server_name = CStr::from_bytes_with_nul(host_zstr.as_bytes()).unwrap();
-    let session_config = wifi_net::tls_session_config(ca_cert, server_name);
+    let allow_tls13 = ALLOW_TLS13.load(Ordering::Relaxed);
+    let session_config = wifi_net::tls_session_config(ca_cert, server_name, allow_tls13);
     let tls_connector = TlsConnector::new(tls.reference(), tcp, &session_config);
 
     let mut ws_rx_buf = [0u8; HTTP_WS_RX_BUF_SIZE];
@@ -286,14 +305,28 @@ async fn run(
         client::Connection::<Tcp, HTTP_MAX_NUM_HEADERS>::new(&mut ws_rx_buf, &tcp, socket_addr)
     });
 
-    claim_if_just_set_up(&mut conn).await?;
-    if !app_settings::persist::get_settings().await.claimed {
-        error!("Device not claimed, cannot establish WebSocket connection");
-        return Err(WsClientError::Unlinked);
-    }
-
     let mut rng = Rng::new();
-    auth::websocket_authenticate(GATEWAY_HOST, &mut conn, &mut rng).await?;
+    let established = async {
+        claim_if_just_set_up(&mut conn).await?;
+        if !app_settings::persist::get_settings().await.claimed {
+            error!("Device not claimed, cannot establish WebSocket connection");
+            return Err(WsClientError::Unlinked);
+        }
+        auth::websocket_authenticate(GATEWAY_HOST, &mut conn, &mut rng).await
+    }
+    .await;
+    #[cfg(ssl_enabled)]
+    if let Err(error) = &established
+        && is_tls_error(error)
+    {
+        ALLOW_TLS13.store(!allow_tls13, Ordering::Relaxed);
+        warn!(
+            "TLS error connecting with TLS {}, trying TLS {} next",
+            if allow_tls13 { "1.3" } else { "1.2" },
+            if allow_tls13 { "1.2" } else { "1.3" }
+        );
+    }
+    established?;
     info!("WebSocket connection established");
 
     let (mut socket, buf) = conn.release();
