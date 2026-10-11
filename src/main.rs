@@ -29,7 +29,6 @@ use config::CONFIG;
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
 use esp_hal::{clock::CpuClock, ram, timer::timg::TimerGroup};
 
 use crate::{
@@ -67,7 +66,12 @@ async fn main(spawner: Spawner) -> ! {
     factory_serial::spawn(spawner, peripherals.USB_DEVICE);
 
     // Spawn Embassy tasks taking peripheral ownership as needed
-    leds::spawn(spawner, peripherals.GPIO1.into(), peripherals.RMT);
+    leds::spawn(
+        spawner,
+        peripherals.GPIO1.into(),
+        peripherals.SPI2,
+        peripherals.DMA_CH0,
+    );
     buttons::spawn(spawner, peripherals.GPIO3.into(), Button::Up);
     buttons::spawn(spawner, peripherals.GPIO9.into(), Button::Middle);
     buttons::spawn(spawner, peripherals.GPIO4.into(), Button::Down);
@@ -103,9 +107,7 @@ async fn main(spawner: Spawner) -> ! {
         wifi_net::start_provisioning().await;
     }
 
-    // Wait a bit for WiFi initialization to complete before sending timing-sensitive LED data
     leds::set_pixels(LedPixels::Off).await;
-    Timer::after(Duration::from_millis(2900)).await;
 
     // Play startup animation if not already received transit data in the meantime
     if !transit_data::is_set().await {

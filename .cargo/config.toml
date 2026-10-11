@@ -13,7 +13,6 @@ rustflags = [
 ]
 
 [env]
-ESP_HAL_CONFIG_PLACE_RMT_DRIVER_IN_RAM="true"
 DEFMT_LOG="error"
 SSL_ENABLED="true"
 

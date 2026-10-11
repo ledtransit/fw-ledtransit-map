@@ -10,31 +10,34 @@ use embassy_sync::{
 };
 use embassy_time::{Duration, with_timeout};
 use esp_hal::{
-    gpio::{AnyPin, Level},
-    peripherals::RMT,
+    gpio::AnyPin,
+    peripherals::{DMA_CH0, SPI2},
     ram,
-    rmt::{Rmt, TxChannelConfig, TxChannelCreator},
-    time::Rate,
 };
 use smart_leds::{RGB8, brightness, gamma};
+use static_cell::ConstStaticCell;
 
 use crate::{
     automation,
     config::CONFIG,
     display::{
         animations::{self, LedPixelsAnimationEvent, LedStatusAnimationEvent},
-        led_driver::{LedDriver, ws2812_pulses},
+        led_driver::{self, LedDriver},
     },
     net::ws_client,
     store::app_settings,
 };
 
-type LedBuffer = [RGB8; CONFIG.cfg.pixel_count + 1];
+const LED_COUNT: usize = CONFIG.cfg.pixel_count + 1;
+type LedBuffer = [RGB8; LED_COUNT];
 
 static LED_DRIVER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 #[ram(unstable(rtc_fast))]
 static LED_BUFFER: Mutex<CriticalSectionRawMutex, LedBuffer> =
-    Mutex::new([RGB8::new(0, 0, 0); CONFIG.cfg.pixel_count + 1]);
+    Mutex::new([RGB8::new(0, 0, 0); LED_COUNT]);
+// The LEDs' encoded data, sent by DMA
+static LED_FRAME: ConstStaticCell<[u8; led_driver::frame_len(LED_COUNT)]> =
+    ConstStaticCell::new([0; led_driver::frame_len(LED_COUNT)]);
 
 const SHORT_INTERVAL: Duration = Duration::from_millis(200);
 const MEDIUM_INTERVAL: Duration = Duration::from_millis(500);
@@ -98,8 +101,13 @@ impl LedColor {
     }
 }
 
-pub fn spawn(spawner: Spawner, gpio: AnyPin<'static>, rmt_peri: RMT<'static>) {
-    spawner.spawn(led_driver_task(gpio, rmt_peri).unwrap());
+pub fn spawn(
+    spawner: Spawner,
+    gpio: AnyPin<'static>,
+    spi_peri: SPI2<'static>,
+    dma_channel: DMA_CH0<'static>,
+) {
+    spawner.spawn(led_driver_task(gpio, spi_peri, dma_channel).unwrap());
     animations::spawn(spawner);
 }
 
@@ -268,34 +276,25 @@ async fn processed_leds(led_buffer: &[RGB8]) -> impl Iterator<Item = RGB8> + '_ 
 }
 
 #[embassy_executor::task]
-async fn led_driver_task(gpio: AnyPin<'static>, rmt_peri: RMT<'static>) {
-    let rmt = Rmt::new(rmt_peri, Rate::from_mhz(80)).expect("Failed to initialize RMT");
-    let clock_mhz = rmt.frequency().as_mhz();
-    let rmt_tx_config = TxChannelConfig::default()
-        .with_clk_divider(1)
-        .with_idle_output_level(Level::Low)
-        .with_carrier_modulation(false)
-        .with_idle_output(true);
-    let rmt_channel = rmt
-        .channel0
-        .configure_tx(&rmt_tx_config)
-        .unwrap()
-        .with_pin(gpio);
-    let mut led_driver = LedDriver::new(rmt_channel, ws2812_pulses(clock_mhz));
+async fn led_driver_task(
+    gpio: AnyPin<'static>,
+    spi_peri: SPI2<'static>,
+    dma_channel: DMA_CH0<'static>,
+) {
+    let mut led_driver = LedDriver::new(spi_peri, dma_channel, gpio, LED_FRAME.take());
 
     // Clear all LEDs
-    led_driver.write(LED_BUFFER.lock().await.iter().cloned());
+    led_driver.encode(LED_BUFFER.lock().await.iter().cloned());
+    led_driver.transmit().await;
 
     loop {
         LED_DRIVER_SIGNAL.wait().await;
         limit_current().await;
 
         let led_buffer = LED_BUFFER.lock().await;
-        let leds = processed_leds(&*led_buffer).await;
-        // Interrupts would break the LEDs' timing
-        critical_section::with(|_| {
-            led_driver.write(leds);
-        });
+        led_driver.encode(processed_leds(&*led_buffer).await);
+        drop(led_buffer);
+        led_driver.transmit().await;
     }
 }
 

@@ -57,7 +57,7 @@ pub struct ProductConfig {
     pub max_delay_minutes: u32,
     pub min_speed_kmph: u32,
     pub max_speed_kmph: u32,
-    pub cos_lat_q15: i16, // Precomputed cosine of the latitude of the location, int(cos(radians(center_lat)) * 32768)
+    pub cos_lat_q15: i16, // Precomputed cosine of the latitude of the location, formula: int(cos(radians(center_lat)) * 32768)
 }
 
 pub struct LocGeoKdNode {

@@ -1,110 +1,75 @@
+// WS2812 LEDs, driven by SPI: each data bit is 4 SPI bits at 3.2 MHz
+// (312.5 ns each), high for 1 (0 bit) or 3 (1 bit) of them. DMA sends the whole
+// encoded frame on its own, so neither interrupts nor a debugger halting the
+// CPU (e.g. for RTT logging) break the timing.
 use defmt::error;
 use esp_hal::{
-    Blocking,
-    gpio::Level,
-    ram,
-    rmt::{Channel, PulseCode, Tx},
+    Async,
+    gpio::AnyPin,
+    peripherals::{DMA_CH0, SPI2},
+    spi::master::{Config, Spi, SpiDma},
+    time::Rate,
 };
 use rgb::{Grb, RGB8};
 
-pub struct LedDriver<'ch> {
-    channel: Option<Channel<'ch, Blocking, Tx>>,
-    pulses: Pulses,
+const SPI_FREQUENCY: Rate = Rate::from_khz(3200);
+// Low before the data, so the LEDs start at the first one: > 200 us
+const RESET_LEN: usize = 80;
+const BYTES_PER_LED: usize = 3 * 4;
+// SPI bytes for two data bits, MSB first
+const BIT_PAIRS: [u8; 4] = [0b1000_1000, 0b1000_1110, 0b1110_1000, 0b1110_1110];
+
+pub const fn frame_len(led_count: usize) -> usize {
+    RESET_LEN + led_count * BYTES_PER_LED
 }
 
-pub struct Pulses {
-    pulse_zero: PulseCode,
-    pulse_one: PulseCode,
-    pulse_reset: PulseCode,
+pub struct LedDriver {
+    spi: SpiDma<'static, Async>,
+    // In RAM (DMA can't read flash), zero-initialized: the reset stays low
+    frame: &'static mut [u8],
+    frame_len: usize,
 }
 
-// LED parameters as per datasheet:
-// - 0 bit: 300 ns high, 900 ns low
-// - 1 bit: 900 ns high, 300 ns low
-// - 0/1 cycle: 1.2 us, < 20 us
-// - reset: > 200 us low
-// - color: GRB MSB
-
-pub fn ws2812_pulses(clock_mhz: u32) -> Pulses {
-    Pulses {
-        pulse_zero: PulseCode::new(
-            Level::High,
-            ((300 * clock_mhz) / 1000) as u16,
-            Level::Low,
-            ((900 * clock_mhz) / 1000) as u16,
-        ),
-        pulse_one: PulseCode::new(
-            Level::High,
-            ((900 * clock_mhz) / 1000) as u16,
-            Level::Low,
-            ((300 * clock_mhz) / 1000) as u16,
-        ),
-        pulse_reset: PulseCode::new(
-            Level::High,
-            (60 * clock_mhz) as u16,
-            Level::Low,
-            (200 * clock_mhz) as u16,
-        ),
-    }
-}
-
-impl<'ch> LedDriver<'ch> {
-    pub fn new(channel: Channel<'ch, Blocking, Tx>, pulses: Pulses) -> Self {
+impl LedDriver {
+    pub fn new(
+        spi: SPI2<'static>,
+        dma_channel: DMA_CH0<'static>,
+        pin: AnyPin<'static>,
+        frame: &'static mut [u8],
+    ) -> Self {
+        let spi = Spi::new(spi, Config::default().with_frequency(SPI_FREQUENCY))
+            .expect("Failed to initialize SPI")
+            .with_mosi(pin)
+            .with_dma(dma_channel)
+            .into_async();
         Self {
-            channel: Some(channel),
-            pulses,
+            spi,
+            frame,
+            frame_len: RESET_LEN,
         }
     }
 
-    #[inline(always)]
-    fn encode_color(&self, color: RGB8) -> [PulseCode; 3 * 8 + 1] {
-        let mut rmt_buffer = [PulseCode::end_marker(); 3 * 8 + 1];
-        let mut rmt_iter = rmt_buffer.iter_mut();
-        let grb: Grb<u8> = color.into();
-        let bytes = [grb.g, grb.r, grb.b];
-        for byte in bytes {
-            for pos in [128, 64, 32, 16, 8, 4, 2, 1] {
-                *rmt_iter.next().unwrap() = if byte & pos != 0 {
-                    self.pulses.pulse_one
-                } else {
-                    self.pulses.pulse_zero
-                };
-            }
-        }
-        rmt_buffer
-    }
-
-    /// Writes the given colors to the LED strip.
-    /// Timing: Only call within critical section.
-    #[ram]
-    pub fn write(&mut self, mut iter: impl Iterator<Item = RGB8>) {
-        // Transmit a dummy high pulse to warm up RMT/GPIO and reset the LEDs
-        let channel = self.channel.take().unwrap();
-        let rmt_buffer = [self.pulses.pulse_reset, PulseCode::end_marker()];
-        self.channel = match channel.transmit(&rmt_buffer).unwrap().wait() {
-            Ok(chan) => Some(chan),
-            Err((e, chan)) => {
-                error!("Failed to transmit to LEDs: {:?}", e);
-                Some(chan)
-            }
-        };
-
-        // Transmit all colors one by one
-        // Note: Within critical section, driver placed in RAM and RMT primed, the blocking transmit loop is fast enough to meet the <20 us code cycle time.
-        // Any slower and the LEDs have a chance to interpret the low time between code cycles as a reset which would cause a glitch in the LED strip.
-        // That way we don't have to maintain a large buffer of all pulse codes in RAM (e.g. 4 bytes per pulse code * 8 bit per channel * 3 channels * 1000 LEDs = 96 kB)
-        let mut next_buf = Some(self.encode_color(iter.next().unwrap()));
-        while let Some(rmt_buf) = next_buf {
-            let channel = self.channel.take().unwrap();
-            let transaction = channel.transmit(&rmt_buf).unwrap();
-            next_buf = iter.next().map(|color| self.encode_color(color));
-            self.channel = match transaction.wait() {
-                Ok(chan) => Some(chan),
-                Err((e, chan)) => {
-                    error!("Failed to transmit to LEDs: {:?}", e);
-                    Some(chan)
+    /// Encodes the colors into the frame, for the next [`Self::transmit`].
+    pub fn encode(&mut self, colors: impl Iterator<Item = RGB8>) {
+        let led_frames = self.frame[RESET_LEN..].chunks_exact_mut(BYTES_PER_LED);
+        let mut led_count = 0;
+        for (color, led_frame) in colors.zip(led_frames) {
+            let grb: Grb<u8> = color.into();
+            let channels = [grb.g, grb.r, grb.b];
+            for (byte, out) in channels.into_iter().zip(led_frame.chunks_exact_mut(4)) {
+                for (i, out) in out.iter_mut().enumerate() {
+                    *out = BIT_PAIRS[usize::from((byte >> (6 - 2 * i)) & 0b11)];
                 }
-            };
+            }
+            led_count += 1;
+        }
+        self.frame_len = frame_len(led_count);
+    }
+
+    /// Sends the encoded frame. The LEDs show it once the line stays low after it.
+    pub async fn transmit(&mut self) {
+        if let Err(e) = self.spi.write_async(&self.frame[..self.frame_len]).await {
+            error!("Failed to transmit to LEDs: {:?}", e);
         }
     }
 }

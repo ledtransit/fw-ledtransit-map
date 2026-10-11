@@ -3,7 +3,7 @@
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use esp_hal::rng::Rng;
 use rgb::RGB8;
 use smart_leds::hsv::{Hsv, hsv2rgb};
@@ -113,21 +113,51 @@ async fn led_pixels_anim_task() {
 }
 
 async fn wait_or_cancel(
-    duration: Duration,
+    timer: Timer,
     cancel: &Signal<CriticalSectionRawMutex, ()>,
 ) -> Result<(), Canceled> {
-    match select(Timer::after(duration), cancel.wait()).await {
+    match select(timer, cancel.wait()).await {
         Either::First(()) => Ok(()),
         Either::Second(()) => Err(Canceled),
     }
 }
 
 async fn wait_status(duration: Duration) -> Result<(), Canceled> {
-    wait_or_cancel(duration, &LED_STATUS_ANIM_CANCEL).await
+    wait_or_cancel(Timer::after(duration), &LED_STATUS_ANIM_CANCEL).await
 }
 
 async fn wait_pixels(duration: Duration) -> Result<(), Canceled> {
-    wait_or_cancel(duration, &LED_PIXELS_ANIM_CANCEL).await
+    wait_or_cancel(Timer::after(duration), &LED_PIXELS_ANIM_CANCEL).await
+}
+
+// Frames of a pixel animation at ANIM_FPS in real time: a frame delayed by other
+// work (e.g. a TLS handshake) skips the frames missed meanwhile, so the
+// animation keeps its speed
+struct FrameClock {
+    start: Instant,
+    frame: u64,
+}
+
+impl FrameClock {
+    fn new() -> Self {
+        Self {
+            start: Instant::now(),
+            frame: 0,
+        }
+    }
+
+    /// Frames since the start, by time.
+    fn frame(&self) -> u64 {
+        self.frame
+    }
+
+    /// Waits for the next frame, or for none if it's already due.
+    async fn next(&mut self) -> Result<(), Canceled> {
+        let due = (Instant::now() - self.start).as_ticks() / FRAME_DURATION.as_ticks();
+        self.frame = (self.frame + 1).max(due);
+        let at = self.start + Duration::from_ticks(self.frame * FRAME_DURATION.as_ticks());
+        wait_or_cancel(Timer::at(at), &LED_PIXELS_ANIM_CANCEL).await
+    }
 }
 
 async fn show_status(color: RGB8) {
@@ -176,7 +206,7 @@ fn max_dist_sq(center: (f32, f32)) -> f32 {
         .fold(0.0, |a, b| a.max(b))
 }
 
-fn scaled(color: RGB8, brightness_percent: usize) -> RGB8 {
+fn scaled_truncating(color: RGB8, brightness_percent: usize) -> RGB8 {
     RGB8 {
         r: (color.r as usize * brightness_percent / 100) as u8,
         g: (color.g as usize * brightness_percent / 100) as u8,
@@ -187,7 +217,7 @@ fn scaled(color: RGB8, brightness_percent: usize) -> RGB8 {
 // A spinner with a trail on the special pixels, then an explosion from the
 // center over all pixels, fading in and out
 async fn play_startup(color: RGB8) -> Result<(), Canceled> {
-    let duration = Duration::from_secs(3);
+    let duration = Duration::from_secs(4);
     let spinner_period = Duration::from_millis(800);
     let explosion_delay = Duration::from_secs(2);
     let num_steps = ANIM_FPS * duration.as_secs();
@@ -198,10 +228,13 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
     let special_indices = CONFIG.cfg.pixel_indices_special;
     let num_special = special_indices.len();
 
-    for step in 0..num_steps {
+    let mut clock = FrameClock::new();
+    while clock.frame() < num_steps {
+        // Begin frame
+        let step = clock.frame();
         let animation_progress = step as f32 / num_steps as f32;
-        let fade_out_factor = 1.0 - (animation_progress - 0.8).max(0.0) / 0.2;
-        let fade_in_factor = (animation_progress / 0.2).min(1.0);
+        let fade_out_factor = 1.0 - (animation_progress - 0.75).max(0.0) * 4.0;
+        let fade_in_factor = (animation_progress * 4.0).min(1.0);
         let brightness_percent = (fade_out_factor.min(fade_in_factor) * 100.0) as usize;
         let spinner_current = step as f32 / (spinner_period.as_millis() * ANIM_FPS / 1000) as f32
             * num_special as f32;
@@ -209,6 +242,7 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
         {
             let mut pixels = leds::get_mut_pixel_buffer().await;
 
+            // Draw delayed explosion
             if step * (1000 / ANIM_FPS) >= explosion_delay.as_millis() {
                 let explosion_progress = animation_progress
                     - explosion_delay.as_millis() as f32 / duration.as_millis() as f32;
@@ -219,10 +253,11 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
                         * 10.0
                         * (animation_progress * 1.5 - norm_dist_sq))
                         as usize;
-                    *pixel = scaled(color, pixel_brightness);
+                    *pixel = scaled_truncating(color, pixel_brightness);
                 }
             }
 
+            // Draw spinner with trail
             for (i, &pixel_idx) in special_indices.iter().enumerate() {
                 let distance =
                     (spinner_current + num_special as f32 - i as f32) % num_special as f32;
@@ -230,12 +265,12 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
                     ((brightness_percent as f32 * distance)
                         / (trail_length_pct * num_special as f32)) as usize,
                 );
-                pixels[pixel_idx as usize] = scaled(color, brightness);
+                pixels[pixel_idx as usize] = scaled_truncating(color, brightness);
             }
         }
 
         leds::update();
-        wait_pixels(FRAME_DURATION).await?;
+        clock.next().await?;
     }
     Ok(())
 }
@@ -258,12 +293,20 @@ async fn show_progress(progress: u8) {
     leds::update();
 }
 
+// From full brightness to off in about a second
 async fn fade_out() -> Result<(), Canceled> {
-    for _ in 0..255 {
+    const FADE_STEP: u64 = 8;
+    let mut clock = FrameClock::new();
+    let mut faded_frames = 0;
+    loop {
+        // Also the steps of frames skipped
+        let steps = clock.frame() + 1 - faded_frames;
+        faded_frames = clock.frame() + 1;
+        let dim = (FADE_STEP * steps).min(255) as u8;
         leds::get_mut_pixel_buffer()
             .await
             .iter_mut()
-            .for_each(|pixel| rgb8_dim(pixel, 5));
+            .for_each(|pixel| rgb8_dim(pixel, dim));
         leds::update();
 
         let all_off = leds::get_mut_pixel_buffer()
@@ -271,12 +314,11 @@ async fn fade_out() -> Result<(), Canceled> {
             .iter()
             .all(|pixel| pixel.r == 0 && pixel.g == 0 && pixel.b == 0);
         if all_off {
-            break;
+            return Ok(());
         }
 
-        wait_pixels(Duration::from_millis(0)).await?;
+        clock.next().await?;
     }
-    Ok(())
 }
 
 // All green for a second
@@ -291,9 +333,10 @@ async fn identify() -> Result<(), Canceled> {
 async fn play_test_mode() -> Result<(), Canceled> {
     let center = map_center();
     let max_dist_sq = max_dist_sq(center);
-    let mut step: u32 = 0;
+    let mut clock = FrameClock::new();
 
     loop {
+        let step = clock.frame();
         {
             let mut pixels = leds::get_mut_pixel_buffer().await;
             for (i, pixel) in pixels.iter_mut().enumerate() {
@@ -310,8 +353,7 @@ async fn play_test_mode() -> Result<(), Canceled> {
         }
 
         leds::update();
-        wait_pixels(FRAME_DURATION).await?;
-        step = step.wrapping_add(1);
+        clock.next().await?;
     }
 }
 
@@ -323,31 +365,35 @@ async fn play_demo_mode() -> Result<(), Canceled> {
 
     let mut snakes = [Snake::NONE; NUM_SNAKES];
     let mut rng = Rng::new();
-    let mut step: u32 = 0;
+    let mut clock = FrameClock::new();
+    let mut step = 0;
 
     loop {
-        let step_sample = step % SUB_SAMPLE_STEPS;
         {
             let mut pixels = leds::get_mut_pixel_buffer().await;
-            // Motion trails
-            pixels.iter_mut().for_each(|pixel| rgb8_dim(pixel, 5));
+            // Also the steps of frames skipped
+            while step <= clock.frame() {
+                let step_sample = (step % u64::from(SUB_SAMPLE_STEPS)) as u32;
+                // Motion trails
+                pixels.iter_mut().for_each(|pixel| rgb8_dim(pixel, 5));
 
-            for snake in snakes.iter_mut() {
-                if step_sample == 0 && !snake.move_forward(&pixels, &mut rng) {
-                    snake.respawn(&mut rng);
+                for snake in snakes.iter_mut() {
+                    if step_sample == 0 && !snake.move_forward(&pixels, &mut rng) {
+                        snake.respawn(&mut rng);
+                    }
+                    if let Some(pixel) = snake.cur_pix.as_option() {
+                        pixels[pixel as usize] = rgb8_brightness(
+                            snake.color,
+                            (step_sample as f32 + 1.0) / SUB_SAMPLE_STEPS as f32,
+                        );
+                    }
                 }
-                if let Some(pixel) = snake.cur_pix.as_option() {
-                    pixels[pixel as usize] = rgb8_brightness(
-                        snake.color,
-                        (step_sample as f32 + 1.0) / SUB_SAMPLE_STEPS as f32,
-                    );
-                }
+                step += 1;
             }
         }
 
         leds::update();
-        wait_pixels(FRAME_DURATION).await?;
-        step = step.wrapping_add(1);
+        clock.next().await?;
     }
 }
 
