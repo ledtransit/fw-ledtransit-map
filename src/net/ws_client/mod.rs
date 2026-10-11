@@ -26,7 +26,7 @@ use embedded_io_async::ErrorKind;
 use embedded_io_async::{Read, Write};
 use envparse::parse_env;
 use esp_hal::rng::Rng;
-use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls};
+use mbedtls_rs::{Certificate, SessionError, Tls};
 use prost::Message;
 use smoltcp::wire::DnsQueryType;
 
@@ -44,7 +44,7 @@ pub mod client_proto {
     include!(concat!(env!("OUT_DIR"), "/ledtransit_client.rs"));
 }
 
-const TCP_RX_BUF_SIZE: usize = 512;
+const TCP_RX_BUF_SIZE: usize = 4 * 1024;
 const TCP_TX_BUF_SIZE: usize = 512;
 const TCP_BUF_POOL_SIZE: usize = 1;
 
@@ -275,11 +275,8 @@ async fn run(
     let tcp_bufs = TcpBuffers::<TCP_BUF_POOL_SIZE, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>::new();
     let tcp = Tcp::new(sta_stack, &tcp_bufs);
     let host_zstr = format!("{}\0", GATEWAY_HOST);
-    let session_config = ClientSessionConfig {
-        ca_chain: Some(ca_cert.clone()),
-        server_name: Some(CStr::from_bytes_with_nul(host_zstr.as_bytes()).unwrap()),
-        ..ClientSessionConfig::new()
-    };
+    let server_name = CStr::from_bytes_with_nul(host_zstr.as_bytes()).unwrap();
+    let session_config = wifi_net::tls_session_config(ca_cert, server_name);
     let tls_connector = TlsConnector::new(tls.reference(), tcp, &session_config);
 
     let mut ws_rx_buf = [0u8; HTTP_WS_RX_BUF_SIZE];

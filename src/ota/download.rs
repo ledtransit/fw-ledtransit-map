@@ -5,6 +5,7 @@ use defmt::{debug, error, info};
 use edge_http::{Method, io::client};
 use edge_nal_embassy::{Tcp, TcpBuffers};
 use edge_nal_tls::TlsConnector;
+use embassy_futures::yield_now;
 use embassy_net::{IpAddress, Stack, dns};
 use embassy_time::{Duration, Instant, with_timeout};
 use embedded_io_async::Read;
@@ -13,14 +14,17 @@ use esp_bootloader_esp_idf::{
     partitions::{self, FlashRegion, PARTITION_TABLE_MAX_LEN},
 };
 use esp_hal::sha::{Sha, Sha256};
-use mbedtls_rs::{Certificate, ClientSessionConfig, Tls};
+use mbedtls_rs::{Certificate, Tls};
 use nb::block;
 use nourl::{Url, UrlScheme};
 use smoltcp::wire::DnsQueryType;
 
 use super::OtaError;
 use crate::{
-    net::ws_client::{self, client_proto::DeviceUpdate},
+    net::{
+        wifi_net,
+        ws_client::{self, client_proto::DeviceUpdate},
+    },
     store::{SharedFlashStorage, app_settings},
     trace,
 };
@@ -64,11 +68,7 @@ pub(super) async fn download_to_flash(
     let host_zstr = heapless::format!(64; "{}\0", host).map_err(|_| OtaError::UrlError)?;
     let server_name =
         CStr::from_bytes_with_nul(host_zstr.as_bytes()).map_err(|_| OtaError::UrlError)?;
-    let session_config = ClientSessionConfig {
-        ca_chain: Some(ca_cert.clone()),
-        server_name: Some(server_name),
-        ..ClientSessionConfig::new()
-    };
+    let session_config = wifi_net::tls_session_config(ca_cert, server_name);
     let tls_connector = TlsConnector::new(tls.reference(), tcp, &session_config);
     let mut http_buf = [0u8; HTTP_BUFFER_SIZE];
     let mut conn = HttpsConnection::new(&mut http_buf, &tls_connector, socket_addr);
@@ -199,6 +199,9 @@ async fn write_image_to_flash(
             .map_err(OtaError::HttpReadError)?;
         write_chunk(partition, bytes_written, &chunk).map_err(OtaError::FlashWriteError)?;
         bytes_written += read_size;
+        // Writing a sector blocks everything for tens of ms, and the next chunk
+        // is often already received: let the other tasks (e.g. the LEDs) run
+        yield_now().await;
 
         let elapsed_secs = (Instant::now() - start_instant).as_secs();
         let speed_bps = (bytes_written as f32 / elapsed_secs.max(1) as f32) as u32;
@@ -242,7 +245,8 @@ fn write_chunk(
     partition.write(byte_offset as u32, data)
 }
 
-// Blocking, but fast with the SHA accelerator
+// Blocking, but fast with the SHA accelerator. Without yielding: the HMAC
+// peripheral (device authentication) uses the same accelerator
 fn sha256_of_flash(
     sha: &mut Sha<'_>,
     partition: &mut FlashStorageRegion<'_>,

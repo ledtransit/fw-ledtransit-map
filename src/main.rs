@@ -53,6 +53,10 @@ async fn main(spawner: Spawner) -> ! {
 
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 66320); // max reclaimed dram2_seg from bootloader
     esp_alloc::heap_allocator!(size: 136 * 1024);
+    // Reclaim RAM from bootloader, maximum value determined via:
+    // riscv-none-elf-readelf -SW target/riscv32imc-unknown-none-elf/release/fw-ledtransit-map | grep dram2_uninit
+    esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 0x10310);
+    esp_alloc::heap_allocator!(size: 124 * 1024);
 
     // Start RTOS
     let timg0 = TimerGroup::new(peripherals.TIMG0);
