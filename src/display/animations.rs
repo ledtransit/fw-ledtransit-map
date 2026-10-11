@@ -242,7 +242,18 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
         {
             let mut pixels = leds::get_mut_pixel_buffer().await;
 
-            // Draw delayed explosion
+            // Layer 0: Draw spinner with trail
+            for (i, &pixel_idx) in special_indices.iter().enumerate() {
+                let distance =
+                    (spinner_current + num_special as f32 - i as f32) % num_special as f32;
+                let brightness = brightness_percent.saturating_sub(
+                    ((brightness_percent as f32 * distance)
+                        / (trail_length_pct * num_special as f32)) as usize,
+                );
+                pixels[pixel_idx as usize] = scaled_truncating(color, brightness);
+            }
+
+            // Layer 1: Draw delayed explosion
             if step * (1000 / ANIM_FPS) >= explosion_delay.as_millis() {
                 let explosion_progress = animation_progress
                     - explosion_delay.as_millis() as f32 / duration.as_millis() as f32;
@@ -255,17 +266,6 @@ async fn play_startup(color: RGB8) -> Result<(), Canceled> {
                         as usize;
                     *pixel = scaled_truncating(color, pixel_brightness);
                 }
-            }
-
-            // Draw spinner with trail
-            for (i, &pixel_idx) in special_indices.iter().enumerate() {
-                let distance =
-                    (spinner_current + num_special as f32 - i as f32) % num_special as f32;
-                let brightness = brightness_percent.saturating_sub(
-                    ((brightness_percent as f32 * distance)
-                        / (trail_length_pct * num_special as f32)) as usize,
-                );
-                pixels[pixel_idx as usize] = scaled_truncating(color, brightness);
             }
         }
 

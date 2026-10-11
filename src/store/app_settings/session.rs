@@ -2,9 +2,17 @@
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use serde::{Deserialize, Serialize};
 
-use crate::net::ws_client::client_proto::DeviceUpdate;
+use crate::net::ws_client::client_proto::{DeviceCommand, DeviceUpdate};
 
+/// A command from the server that runs once a button on the map is pressed
+/// before the deadline
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingConfirmation {
+    pub command: DeviceCommand,
+    pub deadline_unix_timestamp: u32,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionSettings {
     pub light_on: bool,
     pub light_on_override: Option<bool>, // If set, overrides timer and other logic to force light on or off
@@ -25,6 +33,8 @@ pub struct SessionSettings {
     pub firmware_update_available: Option<DeviceUpdate>,
     pub auto_brightness_percent: Option<u8>, // Calculated brightness percent based on sun path automation
     pub auto_update_scheduled_unix_timestamp: Option<u32>, // Unix timestamp of next scheduled auto firmware update
+    pub pending_confirmation: Option<PendingConfirmation>, // Server command awaiting a button press on the map
+    pub display_frames_per_second: f32, // Measured LED updates per second, averaged over the last frames
 }
 
 static SETTINGS: Mutex<CriticalSectionRawMutex, SessionSettings> = Mutex::new(SessionSettings {
@@ -47,6 +57,8 @@ static SETTINGS: Mutex<CriticalSectionRawMutex, SessionSettings> = Mutex::new(Se
     firmware_update_available: None,
     auto_brightness_percent: None,
     auto_update_scheduled_unix_timestamp: None,
+    pending_confirmation: None,
+    display_frames_per_second: 0.0,
 });
 
 pub async fn get_settings() -> SessionSettings {

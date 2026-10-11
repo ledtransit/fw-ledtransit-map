@@ -9,10 +9,7 @@ use crate::{
         ws_client::{self, client_proto::ColorMode},
     },
     ota,
-    store::{
-        app_settings::{self, persist::PersistSettings},
-        transit_data,
-    },
+    store::{app_settings, transit_data},
 };
 
 const BRIGHTNESS_STEP_PERCENT: u32 = 5;
@@ -29,6 +26,12 @@ pub async fn handle_ui_forever() -> ! {
 
 async fn on_short_press(button: Button) {
     debug!("Short press detected on button: {:?}", button);
+    // Any button confirms a server command awaiting confirmation, and does
+    // nothing else then
+    if ws_client::confirm_command().await {
+        info!("UI: Confirmed server command");
+        return;
+    }
     match button {
         Button::Up => {
             info!("UI: Increasing brightness");
@@ -70,10 +73,25 @@ async fn on_combined_long_press(buttons: ButtonsPressedState) {
     if buttons.up && buttons.middle && buttons.down {
         toggle_test_mode().await;
     } else if buttons.up && buttons.down {
-        info!("UI: Performing factory reset");
-        app_settings::persist::update_settings(|set| *set = PersistSettings::default()).await;
-        ota::boot_from_factory();
+        enable_remote_control().await;
     }
+}
+
+// Only possible at the map: the server can only turn remote control off
+async fn enable_remote_control() {
+    let changed = app_settings::persist::update_settings_changed(|set| {
+        set.remote_control_enabled = true;
+    })
+    .await;
+    if !changed {
+        info!("UI: Remote control already enabled");
+        return;
+    }
+    info!("UI: Remote control enabled");
+    // The server picks up from the map's state, which it couldn't change
+    // while remote control was off
+    ws_client::send_status();
+    ws_client::send_config();
 }
 
 async fn change_brightness(change: impl FnOnce(u32) -> u32) {

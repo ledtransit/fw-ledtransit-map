@@ -1,6 +1,7 @@
 // WebSocket connection to the gateway: device authentication, then protobuf
 // messages both ways
 mod auth;
+mod confirmation;
 mod frames;
 mod incoming;
 mod outgoing;
@@ -42,6 +43,7 @@ use crate::{
     trace,
 };
 use client_proto::{ClientMessage, Echo, client_message::Payload};
+pub use confirmation::confirm_command;
 
 pub mod client_proto {
     pub const VERSION: u32 = 1;
@@ -128,6 +130,7 @@ pub fn spawn(
     ca_cert: &'static Certificate<'static>,
 ) {
     spawner.spawn(ws_client_task(sta_stack, controller, tls, ca_cert).unwrap());
+    confirmation::spawn(spawner);
 }
 
 pub fn send_status() {
@@ -354,6 +357,9 @@ async fn run(
         Either3::First(result) | Either3::Second(result) | Either3::Third(result) => result,
     };
     info!("WebSocket connection closed, shutting down ({:?})", result);
+    // A command can't be confirmed any more once the connection it came over
+    // ended: it would quit a later connection
+    confirmation::cancel().await;
 
     with_timeout(Duration::from_secs(1), async {
         frames::send_close(&mut tx, &mut rng).await.ok();

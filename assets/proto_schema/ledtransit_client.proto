@@ -42,6 +42,8 @@ message DeviceStatus {
     required bool is_updating_firmware = 2;
     required bool has_update_failed = 3;
     required string wifi_ssid = 4;
+    optional DeviceCommand command_awaiting_confirmation = 5; // Client -> Server only: runs once a button on the map is pressed, see telemetry for the deadline
+    required bool is_remote_control_enabled = 6; // Client -> Server only (ignored by the client). When off, the client ignores status, config and commands from the server. Turned off with DEVICE_COMMAND_DISABLE_REMOTE_CONTROL, back on only by holding the Up and Down buttons on the map
 }
 
 // [on-join/on-input] Persistent device configuration, stored on device and in cloud (user preferences)
@@ -113,9 +115,13 @@ message DeviceTelemetry {
     required uint32 num_vehicles_visible_real_time = 20;
     required uint32 brightness_percent = 22;
     optional uint32 auto_update_scheduled_unix_timestamp = 23;
+    optional uint32 command_confirmation_deadline_unix_timestamp = 24; // Until then, a button press on the map confirms status.command_awaiting_confirmation
+    required float display_frames_per_second = 25; // Measured LED updates per second, averaged over the last frames (0 without updates)
 }
 
-// [on-input] Commands from server to client (control, actions)
+// [on-input] Commands from server to client (control, actions). Factory reset,
+// reprovision and disabling remote control only run once confirmed with a
+// button press on the map
 enum DeviceCommand {
     DEVICE_COMMAND_REBOOT = 0;
     DEVICE_COMMAND_IDENTIFY = 1;
@@ -125,6 +131,7 @@ enum DeviceCommand {
     DEVICE_COMMAND_START_FIRMWARE_UPDATE = 5;
     DEVICE_COMMAND_TEST_LEDS = 6;
     DEVICE_COMMAND_RECONNECT = 7;
+    DEVICE_COMMAND_DISABLE_REMOTE_CONTROL = 8;
 }
 
 // [on-error] Errors from client to server (error logs, panics)

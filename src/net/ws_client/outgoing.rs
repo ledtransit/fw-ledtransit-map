@@ -24,8 +24,8 @@ fn encode(payload: Payload) -> Vec<u8> {
 }
 
 pub async fn status() -> Vec<u8> {
-    let wifi_ssid: String = app_settings::persist::get_settings()
-        .await
+    let persist_settings = app_settings::persist::get_settings().await;
+    let wifi_ssid: String = persist_settings
         .wifi_ssid
         .unwrap_or_default()
         .as_str()
@@ -36,6 +36,10 @@ pub async fn status() -> Vec<u8> {
         is_updating_firmware: session_settings.updating_firmware,
         has_update_failed: session_settings.update_has_failed,
         wifi_ssid,
+        command_awaiting_confirmation: session_settings
+            .pending_confirmation
+            .map(|pending| pending.command as i32),
+        is_remote_control_enabled: persist_settings.remote_control_enabled,
     }))
 }
 
@@ -73,6 +77,10 @@ pub async fn telemetry(controller: &'static SharedWifiController) -> Vec<u8> {
         num_vehicles_visible_real_time: transit_data_stats.num_vehicles_visible_real_time,
         brightness_percent: leds::get_current_brightness_percent().await as u32,
         auto_update_scheduled_unix_timestamp: session_settings.auto_update_scheduled_unix_timestamp,
+        command_confirmation_deadline_unix_timestamp: session_settings
+            .pending_confirmation
+            .map(|pending| pending.deadline_unix_timestamp),
+        display_frames_per_second: session_settings.display_frames_per_second,
     }))
 }
 

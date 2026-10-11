@@ -20,9 +20,7 @@ use crate::{
 
 const SETTINGS_PARTITION: &str = "settings";
 const SETTINGS_MAGIC: u32 = 0xA562E1B;
-// 2: the access token replaced by `claimed` (devices authenticate with
-// their device keys)
-const SETTINGS_VERSION: u32 = 2;
+const SETTINGS_VERSION: u32 = 1;
 const SETTINGS_MAX_BYTE_SIZE: usize = 1024;
 
 // Environment overrides
@@ -38,7 +36,15 @@ pub struct PersistSettings {
     pub wifi_password: Option<heapless::String<64>>,
     pub prov_token: Option<heapless::String<64>>, // Short-lived provisioning used for initial WiFi setup identification with the API
     pub claimed: bool, // Claimed into its user's account by the gateway: connects with its device keys from then on
+    pub remote_control_enabled: bool, // Whether the server may switch the light, change the config and run commands. Only the buttons turn it back on
     pub config: DeviceConfig, // Device configuration settings synced with server user settings
+}
+
+// The start of every version, to tell which one is stored
+#[derive(Deserialize)]
+struct SettingsHeader {
+    magic: u32,
+    version: u32,
 }
 
 impl Default for PersistSettings {
@@ -74,6 +80,7 @@ const fn persist_settings_default() -> PersistSettings {
         wifi_password: None,
         prov_token: None,
         claimed: false,
+        remote_control_enabled: true,
         config: DeviceConfig {
             brightness_percent: 25,
             current_limit_ma: 1000,
@@ -97,7 +104,7 @@ const fn persist_settings_default() -> PersistSettings {
                 end_time_of_day_seconds: 18 * 60 * 60,   // 6:00 PM
                 weekdays_bitmask: 0b01111111,            // Su-Sa
             },
-            auto_firmware_update_enabled: false,
+            auto_firmware_update_enabled: true,
             min_delay_minutes: CONFIG.cfg.min_delay_minutes,
             max_delay_minutes: CONFIG.cfg.max_delay_minutes,
             min_speed_kmph: CONFIG.cfg.min_speed_kmph,
@@ -128,35 +135,40 @@ pub async fn init(flash_store: &mut FlashStorage<'_>) {
             .read(0, &mut buf)
             .expect("Failed to read settings from storage")
     });
-    let mut settings: PersistSettings = postcard::from_bytes(&buf).unwrap_or_default();
-
-    if settings.magic != SETTINGS_MAGIC {
-        trace::wrn!(
-            "Invalid settings magic (expected 0x{:X}, got 0x{:X}), resetting to defaults",
-            SETTINGS_MAGIC,
-            settings.magic
-        );
-        settings = PersistSettings::default();
-    }
-
-    if settings.version != SETTINGS_VERSION && migrate_settings(&mut settings).is_err() {
-        trace::wrn!(
-            "Failed to migrate settings from version {} to {}, resetting to defaults",
-            settings.version,
-            SETTINGS_VERSION
-        );
-        settings = PersistSettings::default();
-    }
-
+    let mut settings = deserialize_settings(&buf);
     apply_env_overrides(&mut settings);
 
     info!("Settings loaded from flash (v{})", settings.version);
     *SETTINGS.lock().await = settings;
 }
 
-fn migrate_settings(_old: &mut PersistSettings) -> Result<(), ()> {
-    // No migrations yet
-    Ok(())
+// The stored settings. The fields aren't named in the stored data, so only
+// the current version can be read (another one would need a migration)
+fn deserialize_settings(buf: &[u8]) -> PersistSettings {
+    let header = postcard::from_bytes::<SettingsHeader>(buf).unwrap_or(SettingsHeader {
+        magic: 0,
+        version: 0,
+    });
+    if header.magic != SETTINGS_MAGIC {
+        trace::wrn!(
+            "Invalid settings magic (expected 0x{:X}, got 0x{:X}), resetting to defaults",
+            SETTINGS_MAGIC,
+            header.magic
+        );
+        return PersistSettings::default();
+    }
+
+    let settings = (header.version == SETTINGS_VERSION)
+        .then(|| postcard::from_bytes::<PersistSettings>(buf).ok())
+        .flatten();
+    settings.unwrap_or_else(|| {
+        trace::wrn!(
+            "Failed to load settings version {} (current {}), resetting to defaults",
+            header.version,
+            SETTINGS_VERSION
+        );
+        PersistSettings::default()
+    })
 }
 
 fn apply_env_overrides(settings: &mut PersistSettings) {

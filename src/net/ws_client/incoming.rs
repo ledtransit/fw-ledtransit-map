@@ -8,7 +8,7 @@ use super::{
         DeviceCommand, DeviceConfig, DeviceStatus, DeviceUpdate, ServerInfo, TransitData,
         client_message::Payload,
     },
-    quit, send_config, send_echo, send_info, send_status, send_telemetry,
+    confirmation, quit, send_config, send_echo, send_info, send_status, send_telemetry,
 };
 use crate::{
     display::leds::{self, LedPixels},
@@ -23,6 +23,21 @@ use crate::{
 const AUTO_UPDATE_DELAY: Duration = Duration::from_secs(5 * 60);
 
 pub async fn handle_message(payload: Payload, payload_len: usize) {
+    // With remote control off, the server can't change the map's state. Only
+    // checked for those messages: reading the settings copies the config
+    let is_remote_control = matches!(
+        payload,
+        Payload::Status(_) | Payload::Config(_) | Payload::Command(_)
+    );
+    if is_remote_control
+        && !app_settings::persist::get_settings()
+            .await
+            .remote_control_enabled
+    {
+        info!("WS: Remote control disabled, ignoring server message");
+        return;
+    }
+
     match payload {
         Payload::ServerInfo(server_info) => on_server_info(server_info).await,
         Payload::Status(status) => on_status(status).await,
@@ -117,15 +132,14 @@ async fn on_command(command: i32) {
             );
             leds::set_pixels(LedPixels::Identify).await;
         }
-        DeviceCommand::FactoryReset => {
-            info!("WS: Received factory reset command from server, resetting device settings...");
-            app_settings::persist::update_settings(|set| *set = PersistSettings::default()).await;
-            send_config();
-            quit(Err(WsClientError::FactoryReset));
-        }
-        DeviceCommand::Reprovision => {
-            info!("WS: Received reprovision command from server, restarting WiFi provisioning...");
-            quit(Err(WsClientError::RestartProvisioning));
+        DeviceCommand::FactoryReset
+        | DeviceCommand::Reprovision
+        | DeviceCommand::DisableRemoteControl => {
+            info!(
+                "WS: Received command {:?} from server, awaiting confirmation on the map...",
+                command as i32
+            );
+            confirmation::request(command);
         }
         DeviceCommand::ResetConfigDefaults => {
             info!(
@@ -169,6 +183,31 @@ async fn on_command(command: i32) {
             info!("WS: Received reconnect command from server, reconnecting to server...");
             quit(Err(WsClientError::Reconnect));
         }
+    }
+}
+
+/// Runs a command once the owner confirmed it on the map (see confirmation).
+pub(super) async fn on_command_confirmed(command: DeviceCommand) {
+    match command {
+        DeviceCommand::FactoryReset => {
+            info!("WS: Factory reset confirmed, resetting device settings...");
+            app_settings::persist::update_settings(|set| *set = PersistSettings::default()).await;
+            send_config();
+            quit(Err(WsClientError::FactoryReset));
+        }
+        DeviceCommand::Reprovision => {
+            info!("WS: Reprovision confirmed, restarting WiFi provisioning...");
+            quit(Err(WsClientError::RestartProvisioning));
+        }
+        DeviceCommand::DisableRemoteControl => {
+            info!("WS: Disabling remote control confirmed");
+            app_settings::persist::update_settings(|set| {
+                set.remote_control_enabled = false;
+            })
+            .await;
+            send_status();
+        }
+        _ => trace::wrn!("WS: Command doesn't need confirmation: {}", command as i32),
     }
 }
 

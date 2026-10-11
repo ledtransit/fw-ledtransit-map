@@ -8,7 +8,7 @@ use embassy_sync::{
     mutex::{Mutex, MutexGuard},
     signal::Signal,
 };
-use embassy_time::{Duration, with_timeout};
+use embassy_time::{Duration, Instant, with_deadline, with_timeout};
 use esp_hal::{
     gpio::AnyPin,
     peripherals::{DMA_CH0, SPI2},
@@ -39,6 +39,11 @@ static LED_BUFFER: Mutex<CriticalSectionRawMutex, LedBuffer> =
 static LED_FRAME: ConstStaticCell<[u8; led_driver::frame_len(LED_COUNT)]> =
     ConstStaticCell::new([0; led_driver::frame_len(LED_COUNT)]);
 
+// The frame rate is averaged over the last frames, and stored once a second
+// (not each frame)
+const FRAME_RATE_FRAMES: usize = 16;
+const FRAME_RATE_STORE_INTERVAL: Duration = Duration::from_secs(1);
+
 const SHORT_INTERVAL: Duration = Duration::from_millis(200);
 const MEDIUM_INTERVAL: Duration = Duration::from_millis(500);
 const LONG_INTERVAL: Duration = Duration::from_secs(2);
@@ -52,10 +57,11 @@ pub enum LedStatus {
     TimerOff,          // Day/night timer is driving the LEDs off
 
     // Process
-    Pairing,          // WiFi AP server started for provisioning
-    ConnectingWifi,   // Connecting to WiFi station
-    ConnectingServer, // Connecting to HTTP/WS server
-    UpdatingFirmware, // Firmware update in progress
+    Pairing,              // WiFi AP server started for provisioning
+    ConnectingWifi,       // Connecting to WiFi station
+    ConnectingServer,     // Connecting to HTTP/WS server
+    UpdatingFirmware,     // Firmware update in progress
+    AwaitingConfirmation, // Server command awaiting a button press on the map to confirm it
 
     // Error
     WifiError,    // WiFi connection error (wrong credentials, AP not found)
@@ -84,6 +90,7 @@ pub enum LedColor {
     Red,
     Pink,
     Purple,
+    White,
 }
 
 impl LedColor {
@@ -97,6 +104,7 @@ impl LedColor {
             LedColor::Red => RGB8::new(255, 60, 0),
             LedColor::Pink => RGB8::new(255, 0, 200),
             LedColor::Purple => RGB8::new(140, 0, 255),
+            LedColor::White => RGB8::new(255, 255, 255),
         }
     }
 }
@@ -146,6 +154,7 @@ fn status_animation(status: LedStatus) -> LedStatusAnimationEvent {
         LedStatus::ConnectingWifi => Blink(LedColor::Yellow.as_rgb8(), MEDIUM_INTERVAL),
         LedStatus::ConnectingServer => Blink(LedColor::Green.as_rgb8(), MEDIUM_INTERVAL),
         LedStatus::UpdatingFirmware => Blink(LedColor::Pink.as_rgb8(), MEDIUM_INTERVAL),
+        LedStatus::AwaitingConfirmation => Blink(LedColor::White.as_rgb8(), SHORT_INTERVAL),
         LedStatus::WifiError => error(LedColor::Yellow),
         LedStatus::ServerError => error(LedColor::Green),
         LedStatus::AuthError => error(LedColor::Blue),
@@ -162,7 +171,10 @@ pub async fn set_status_led_from_session() {
     if !is_provisioned {
         return;
     }
-    set_status(if settings.updating_firmware {
+    // A confirmation first: it needs someone at the map, and only lasts a moment
+    set_status(if settings.pending_confirmation.is_some() {
+        LedStatus::AwaitingConfirmation
+    } else if settings.updating_firmware {
         LedStatus::UpdatingFirmware
     } else if settings.light_on && settings.firmware_update_available.is_some() {
         LedStatus::OkUpdateAvailable
@@ -287,14 +299,64 @@ async fn led_driver_task(
     led_driver.encode(LED_BUFFER.lock().await.iter().cloned());
     led_driver.transmit().await;
 
+    let mut frame_rate = FrameRate::new();
+    let mut store_frame_rate_at = Instant::now() + FRAME_RATE_STORE_INTERVAL;
     loop {
-        LED_DRIVER_SIGNAL.wait().await;
-        limit_current().await;
+        if with_deadline(store_frame_rate_at, LED_DRIVER_SIGNAL.wait())
+            .await
+            .is_ok()
+        {
+            limit_current().await;
 
-        let led_buffer = LED_BUFFER.lock().await;
-        led_driver.encode(processed_leds(&*led_buffer).await);
-        drop(led_buffer);
-        led_driver.transmit().await;
+            let led_buffer = LED_BUFFER.lock().await;
+            led_driver.encode(processed_leds(&*led_buffer).await);
+            drop(led_buffer);
+            led_driver.transmit().await;
+            frame_rate.on_frame();
+        }
+
+        if Instant::now() >= store_frame_rate_at {
+            let frames_per_second = frame_rate.frames_per_second();
+            app_settings::session::update_settings(|set| {
+                set.display_frames_per_second = frames_per_second;
+            })
+            .await;
+            store_frame_rate_at = Instant::now() + FRAME_RATE_STORE_INTERVAL;
+        }
+    }
+}
+
+// The times the last frames were written out to the LEDs
+struct FrameRate {
+    frame_times: heapless::Deque<Instant, FRAME_RATE_FRAMES>,
+}
+
+impl FrameRate {
+    fn new() -> Self {
+        Self {
+            frame_times: heapless::Deque::new(),
+        }
+    }
+
+    fn on_frame(&mut self) {
+        if self.frame_times.is_full() {
+            self.frame_times.pop_front();
+        }
+        self.frame_times.push_back(Instant::now()).ok();
+    }
+
+    /// Frames per second over the last frames. 0 when nothing was written out
+    /// for a while: the LEDs don't change.
+    fn frames_per_second(&self) -> f32 {
+        let (Some(&oldest), Some(&newest)) = (self.frame_times.front(), self.frame_times.back())
+        else {
+            return 0.0;
+        };
+        if Instant::now() - newest > FRAME_RATE_STORE_INTERVAL || newest == oldest {
+            return 0.0;
+        }
+        let frame_intervals = (self.frame_times.len() - 1) as f32;
+        frame_intervals * 1_000_000.0 / (newest - oldest).as_micros() as f32
     }
 }
 
