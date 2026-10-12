@@ -7,6 +7,7 @@ use esp_hal::{
     Async,
     gpio::AnyPin,
     peripherals::{DMA_CH0, SPI2},
+    ram,
     spi::master::{Config, Spi, SpiDma},
     time::Rate,
 };
@@ -18,6 +19,24 @@ const RESET_LEN: usize = 80;
 const BYTES_PER_LED: usize = 3 * 4;
 // SPI bytes for two data bits, MSB first
 const BIT_PAIRS: [u8; 4] = [0b1000_1000, 0b1000_1110, 0b1110_1000, 0b1110_1110];
+// The 4 SPI bytes of each data byte (big-endian). In RAM, not flash: read for
+// each channel of each LED every frame
+#[ram]
+static BYTE_SPI_WORDS: [u32; 256] = byte_spi_words();
+
+const fn byte_spi_words() -> [u32; 256] {
+    let mut words = [0; 256];
+    let mut byte = 0;
+    while byte < 256 {
+        let mut i = 0;
+        while i < 4 {
+            words[byte] = (words[byte] << 8) | BIT_PAIRS[(byte >> (6 - 2 * i)) & 0b11] as u32;
+            i += 1;
+        }
+        byte += 1;
+    }
+    words
+}
 
 pub const fn frame_len(led_count: usize) -> usize {
     RESET_LEN + led_count * BYTES_PER_LED
@@ -54,16 +73,25 @@ impl LedDriver {
         let led_frames = self.frame[RESET_LEN..].chunks_exact_mut(BYTES_PER_LED);
         let mut led_count = 0;
         for (color, led_frame) in colors.zip(led_frames) {
-            let grb: Grb<u8> = color.into();
-            let channels = [grb.g, grb.r, grb.b];
-            for (byte, out) in channels.into_iter().zip(led_frame.chunks_exact_mut(4)) {
-                for (i, out) in out.iter_mut().enumerate() {
-                    *out = BIT_PAIRS[usize::from((byte >> (6 - 2 * i)) & 0b11)];
-                }
-            }
+            encode_led(led_frame, color);
             led_count += 1;
         }
         self.frame_len = frame_len(led_count);
+    }
+
+    /// Encodes the colors from the LED at the index on (the frame then ends
+    /// after them), each channel's value mapped through the table first. The
+    /// mapped values, summed up per channel.
+    pub fn encode_mapped(
+        &mut self,
+        first_led: usize,
+        colors: &[RGB8],
+        channel_map: &[u8; 256],
+    ) -> [u32; 3] {
+        let start = RESET_LEN + first_led * BYTES_PER_LED;
+        let end = start + colors.len() * BYTES_PER_LED;
+        self.frame_len = end;
+        encode_mapped(&mut self.frame[start..end], colors, channel_map)
     }
 
     /// Sends the encoded frame. The LEDs show it once the line stays low after it.
@@ -72,4 +100,31 @@ impl LedDriver {
             error!("Failed to transmit to LEDs: {:?}", e);
         }
     }
+}
+
+fn encode_led(led_frame: &mut [u8], color: RGB8) {
+    let grb: Grb<u8> = color.into();
+    let channels = [grb.g, grb.r, grb.b];
+    for (byte, out) in channels.into_iter().zip(led_frame.chunks_exact_mut(4)) {
+        out.copy_from_slice(&BYTE_SPI_WORDS[usize::from(byte)].to_be_bytes());
+    }
+}
+
+// Runs for each LED every frame: in RAM (not run from flash through the cache),
+// as one loop
+#[ram]
+fn encode_mapped(frame: &mut [u8], colors: &[RGB8], channel_map: &[u8; 256]) -> [u32; 3] {
+    let mut sums = [0u32; 3];
+    for (color, led_frame) in colors.iter().zip(frame.chunks_exact_mut(BYTES_PER_LED)) {
+        let mapped = RGB8::new(
+            channel_map[usize::from(color.r)],
+            channel_map[usize::from(color.g)],
+            channel_map[usize::from(color.b)],
+        );
+        sums[0] += u32::from(mapped.r);
+        sums[1] += u32::from(mapped.g);
+        sums[2] += u32::from(mapped.b);
+        encode_led(led_frame, mapped);
+    }
+    sums
 }

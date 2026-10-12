@@ -14,7 +14,7 @@ use crate::{
     },
     net::ws_client::{
         self,
-        client_proto::{DeviceConfig, DisruptionInterval, DisruptionMode, RenderMode},
+        client_proto::{DisruptionInterval, DisruptionMode, RenderMode},
     },
     profiling,
     store::{app_settings, transit_data},
@@ -23,7 +23,7 @@ use crate::{
     watchdog,
 };
 
-const PAINTER_FPS: u32 = 30;
+const PAINTER_FPS: u32 = 40;
 const RENDERER_FRAME_TIME_MS: u64 = 1000 / RENDERER_FPS as u64;
 // Offline after the end of the simulated data
 const DATA_STALE_AFTER_SECS: u32 = 120;
@@ -34,21 +34,22 @@ pub fn spawn(spawner: embassy_executor::Spawner) {
 
 #[embassy_executor::task]
 async fn draw_task() {
-    let frame_duration_budget = Duration::from_millis(1000 / PAINTER_FPS as u64);
+    let frame_duration_budget = Duration::from_hz(PAINTER_FPS as u64);
     loop {
         let begin_frame_time = Instant::now();
         watchdog::heartbeat();
 
-        let is_set_up = app_settings::persist::get_settings().await.claimed;
-        let settings = app_settings::session::get_settings().await;
-        if is_set_up && !settings.test_mode_active {
+        let is_set_up = app_settings::persist::read_settings(|set| set.claimed).await;
+        let test_mode_active =
+            app_settings::session::read_settings(|set| set.test_mode_active).await;
+        if is_set_up && !test_mode_active {
             automation::step().await;
             draw_frame().await;
         }
 
         let frame_duration = Instant::now() - begin_frame_time;
         if frame_duration < frame_duration_budget {
-            Timer::after(frame_duration_budget - frame_duration).await;
+            Timer::at(begin_frame_time + frame_duration_budget).await;
         } else {
             warn!(
                 "Draw: Frame processing time {}ms exceeded time budget {}ms",
@@ -59,8 +60,17 @@ async fn draw_task() {
     }
 }
 
+// The config's values drawn with
+struct DrawConfig {
+    animation_speed_percent: u32,
+    render_mode: i32,
+    disruptions_enabled: bool,
+    disruption_interval: i32,
+    disruption_mode: i32,
+}
+
 async fn draw_frame() {
-    let settings = app_settings::session::get_settings().await;
+    let light_on = app_settings::session::read_settings(|set| set.light_on).await;
     let mut store_guard = transit_data::get_mut().await;
     let Some(store) = store_guard.as_mut() else {
         return;
@@ -75,7 +85,7 @@ async fn draw_frame() {
         > DATA_STALE_AFTER_SECS
     {
         drop(store_guard);
-        go_offline(settings.light_on).await;
+        go_offline(light_on).await;
         return;
     }
 
@@ -95,7 +105,7 @@ async fn draw_frame() {
     else {
         return;
     };
-    if !settings.light_on {
+    if !light_on {
         profiling::once!(first_transit_data_paint_skipped);
         return;
     }
@@ -104,7 +114,15 @@ async fn draw_frame() {
         return;
     }
 
-    let config = app_settings::persist::get_settings().await.config;
+    // Only the values needed, not all settings copied: runs every frame
+    let config = app_settings::persist::read_settings(|set| DrawConfig {
+        animation_speed_percent: set.config.animation_speed_percent,
+        render_mode: set.config.render_mode,
+        disruptions_enabled: set.config.disruptions_enabled,
+        disruption_interval: set.config.disruption_interval,
+        disruption_mode: set.config.disruption_mode,
+    })
+    .await;
     let animation_speed_unit = config.animation_speed_percent.min(200) as f32 / 200.0;
     let render_mode =
         RenderMode::try_from(config.render_mode).unwrap_or(RenderMode::SnapClosestTransition);
@@ -167,7 +185,7 @@ async fn go_offline(light_on: bool) {
 fn draw_disruptions(
     pixel_buf: &mut [RGB8],
     disruptions: &[RenderedDisruption],
-    config: &DeviceConfig,
+    config: &DrawConfig,
     now_instant_ms: u64,
     transition_duration_ms: u64,
     animation_speed_unit: f32,

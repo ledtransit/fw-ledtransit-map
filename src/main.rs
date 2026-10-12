@@ -76,6 +76,7 @@ async fn main(spawner: Spawner) -> ! {
     // Spawn Embassy tasks taking peripheral ownership as needed
     leds::spawn(
         spawner,
+        peripherals.FROM_CPU_INTR1,
         peripherals.GPIO1.into(),
         peripherals.SPI2,
         peripherals.DMA_CH0,

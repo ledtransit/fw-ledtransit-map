@@ -65,6 +65,11 @@ pub async fn get_settings() -> SessionSettings {
     SETTINGS.lock().await.clone()
 }
 
+/// A value from the settings, without copying them all (for frequent reads).
+pub async fn read_settings<R>(f: impl FnOnce(&SessionSettings) -> R) -> R {
+    f(&*SETTINGS.lock().await)
+}
+
 pub async fn update_settings<F>(f: F)
 where
     F: FnOnce(&mut SessionSettings),

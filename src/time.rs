@@ -12,17 +12,15 @@ fn uptime_secs() -> u32 {
 }
 
 pub async fn get_unix_timestamp_seconds() -> u32 {
-    let unix_epoch_offset_secs = app_settings::session::get_settings()
-        .await
-        .unix_epoch_offset_secs;
+    let unix_epoch_offset_secs =
+        app_settings::session::read_settings(|set| set.unix_epoch_offset_secs).await;
     unix_epoch_offset_secs.wrapping_add(uptime_secs())
 }
 
 // Seconds since local midnight of the day the time was last synchronized
 async fn local_seconds_since_sync_midnight() -> u32 {
-    let local_time_of_day_offset_secs = app_settings::session::get_settings()
-        .await
-        .local_time_of_day_offset_secs;
+    let local_time_of_day_offset_secs =
+        app_settings::session::read_settings(|set| set.local_time_of_day_offset_secs).await;
     local_time_of_day_offset_secs.wrapping_add(uptime_secs())
 }
 
@@ -33,9 +31,8 @@ pub async fn get_local_seconds_since_midnight() -> u32 {
 
 /// Today's weekday in the user's configured timezone (0 = Sunday).
 pub async fn get_local_weekday_number() -> u32 {
-    let local_weekday_number = app_settings::session::get_settings()
-        .await
-        .local_weekday_number;
+    let local_weekday_number =
+        app_settings::session::read_settings(|set| set.local_weekday_number).await;
     // Midnights passed since the last synchronization
     let days_passed = local_seconds_since_sync_midnight().await / SECONDS_PER_DAY;
     (local_weekday_number + days_passed) % 7
