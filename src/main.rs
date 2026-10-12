@@ -122,7 +122,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Play startup animation if not already received transit data in the meantime
     if !transit_data::is_set().await {
-        leds::set_pixels(LedPixels::StartupAnimation(LedColor::Amber.as_rgb8())).await;
+        leds::set_pixels(LedPixels::StartupAnimation).await;
         leds::wait_pixels_animation_complete().await;
         if !is_provisioned {
             leds::set_pixels(LedPixels::DemoMode).await;

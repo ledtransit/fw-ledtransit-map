@@ -46,7 +46,7 @@ pub enum LedStatusAnimationEvent {
 }
 
 pub enum LedPixelsAnimationEvent {
-    PlayStartup(RGB8),   // Spinner + Explosion
+    PlayStartup,         // Spinner + Explosion
     ProgressPercent(u8), // Progress bar on special pixels
     FadeOut,             // Reduce brightness of all pixels to 0
     Identify,            // Flash all pixels green for 1s
@@ -127,7 +127,7 @@ async fn led_pixels_anim_task() {
         let (number, event) = LED_PIXELS_ANIM_SIGNAL.wait().await;
         LED_PIXELS_ANIM_CANCEL.reset();
         _ = match event {
-            LedPixelsAnimationEvent::PlayStartup(color) => play_startup(color).await,
+            LedPixelsAnimationEvent::PlayStartup => play_startup().await,
             LedPixelsAnimationEvent::ProgressPercent(progress) => {
                 show_progress(progress).await;
                 Ok(())
@@ -245,7 +245,8 @@ fn scaled_truncating(color: RGB8, brightness_percent: usize) -> RGB8 {
 
 // A spinner with a trail on the special pixels, then an explosion from the
 // center over all pixels, fading in and out
-async fn play_startup(color: RGB8) -> Result<(), Canceled> {
+async fn play_startup() -> Result<(), Canceled> {
+    let color = LedColor::Amber.as_rgb8();
     let duration = Duration::from_secs(4);
     let spinner_period = Duration::from_millis(800);
     let explosion_delay = Duration::from_secs(2);

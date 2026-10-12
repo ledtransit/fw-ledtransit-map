@@ -76,7 +76,7 @@ pub enum LedStatus {
 #[allow(unused)]
 pub enum LedPixels {
     Off,
-    StartupAnimation(RGB8),
+    StartupAnimation,
     ProgressPercent(u8),
     FadeOut,
     Identify,
@@ -199,7 +199,7 @@ pub async fn set_pixels(pixels: LedPixels) {
             return;
         }
         LedPixels::FadeOut => LedPixelsAnimationEvent::FadeOut,
-        LedPixels::StartupAnimation(color) => LedPixelsAnimationEvent::PlayStartup(color),
+        LedPixels::StartupAnimation => LedPixelsAnimationEvent::PlayStartup,
         LedPixels::ProgressPercent(progress) => LedPixelsAnimationEvent::ProgressPercent(progress),
         LedPixels::Identify => LedPixelsAnimationEvent::Identify,
         LedPixels::TestMode => LedPixelsAnimationEvent::TestMode,
