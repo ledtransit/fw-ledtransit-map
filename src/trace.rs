@@ -16,56 +16,68 @@ const PANIC_INFO_MAX_SERIALIZED_SIZE: usize = 256;
 static ERRORS: Mutex<CriticalSectionRawMutex, heapless::Vec<DeviceError, MAX_NUM_ERRORS>> =
     Mutex::new(heapless::Vec::new());
 
-// Survives the reset after a panic, to be reported after the reboot
+// Survives the reset after a panic, to be reported after the reboot. Kept as
+// bytes, checked before they're decoded: RTC memory holds garbage after power
+// on (or a reset during a write)
 #[ram(unstable(rtc_fast, persistent))]
-static mut PANIC_INFO: PersistablePanicInfo = PersistablePanicInfo {
-    did_panic: false,
-    instant_milliseconds: 0,
-    file_name: heapless::String::new(),
-    line_number: 0,
-    column_number: 0,
-    message: heapless::String::new(),
+static mut PANIC_INFO: PersistedPanicInfo = PersistedPanicInfo {
+    len: 0,
     crc32: 0,
+    bytes: [0; PANIC_INFO_MAX_SERIALIZED_SIZE],
 };
 
-#[derive(Serialize, Deserialize, Clone)]
-struct PersistablePanicInfo {
-    did_panic: bool,
+// Valid for any bit pattern: only integers
+#[repr(C)]
+struct PersistedPanicInfo {
+    len: u32, // Of the serialized info, 0 without one
+    crc32: u32,
+    bytes: [u8; PANIC_INFO_MAX_SERIALIZED_SIZE],
+}
+
+// SAFETY: Only integers and an array of them, valid for any bit pattern
+unsafe impl Persistable for PersistedPanicInfo {}
+
+impl PersistedPanicInfo {
+    fn store(&mut self, info: &PanicInfo) {
+        self.len = 0;
+        if let Ok(serialized) = postcard::to_slice(info, &mut self.bytes) {
+            let len = serialized.len();
+            self.crc32 = crc32_le(0xFFFFFFFF, &self.bytes[..len]);
+            self.len = len as u32;
+        }
+    }
+
+    // None without one, or if it's garbage
+    fn load(&self) -> Option<PanicInfo> {
+        let serialized = self.bytes.get(..self.len as usize)?;
+        if serialized.is_empty() || crc32_le(0xFFFFFFFF, serialized) != self.crc32 {
+            return None;
+        }
+        postcard::from_bytes(serialized).ok()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct PanicInfo {
     instant_milliseconds: u32,
     file_name: heapless::String<64>,
     line_number: u32,
     column_number: u32,
     message: heapless::String<128>,
-    crc32: u32, // Over the serialized info with crc32 = 0, as RTC memory can hold garbage
 }
 
-unsafe impl Persistable for PersistablePanicInfo {}
-
-impl PersistablePanicInfo {
-    fn from_panic_info(panic_info: &core::panic::PanicInfo) -> Self {
+impl PanicInfo {
+    fn new(panic_info: &core::panic::PanicInfo) -> Self {
         let location = panic_info
             .location()
             .unwrap_or_else(|| core::panic::Location::caller());
-        let mut info = PersistablePanicInfo {
-            did_panic: true,
+        PanicInfo {
             instant_milliseconds: Instant::now().as_millis() as u32,
             file_name: truncated_or_unknown(location.file()),
             line_number: location.line(),
             column_number: location.column(),
             message: truncated_or_unknown(&panic_info.message().to_string()),
-            crc32: 0,
-        };
-        info.crc32 = info.checksum().expect("Failed to serialize panic info");
-        info
-    }
-
-    fn checksum(&self) -> Option<u32> {
-        let unchecked = PersistablePanicInfo {
-            crc32: 0,
-            ..self.clone()
-        };
-        let serialized = postcard::to_vec::<_, PANIC_INFO_MAX_SERIALIZED_SIZE>(&unchecked).ok()?;
-        Some(crc32_le(0xFFFFFFFF, &serialized))
+        }
     }
 }
 
@@ -78,10 +90,10 @@ fn truncated_or_unknown<const N: usize>(text: &str) -> heapless::String<N> {
 #[panic_handler]
 fn panic(panic: &core::panic::PanicInfo) -> ! {
     error!("Panic: {}", panic);
-    let info = PersistablePanicInfo::from_panic_info(panic);
-    unsafe {
-        PANIC_INFO = info;
-    }
+    let info = PanicInfo::new(panic);
+    let persisted = &raw mut PANIC_INFO;
+    // SAFETY: Single core, and nothing else runs once panicking
+    unsafe { (*persisted).store(&info) };
     esp_hal::system::software_reset();
 }
 
@@ -92,10 +104,14 @@ fn defmt_panic() -> ! {
 
 /// Reports a panic from before the last reset, if any.
 pub fn init_on_boot() {
-    let panic_info = unsafe { core::ptr::read(&raw const PANIC_INFO) };
-    if !panic_info.did_panic || panic_info.checksum() != Some(panic_info.crc32) {
+    let persisted = &raw mut PANIC_INFO;
+    // SAFETY: Only read and cleared here, before anything else could panic
+    // (single core); valid for any bit pattern
+    let panic_info = unsafe { (*persisted).load() };
+    unsafe { (*persisted).len = 0 };
+    let Some(panic_info) = panic_info else {
         return;
-    }
+    };
 
     info!("Recovering from panic");
     add_error(DeviceError {
@@ -107,10 +123,6 @@ pub fn init_on_boot() {
         column_number: panic_info.column_number,
         unix_timestamp: 0, // Set when sent
     });
-
-    unsafe {
-        PANIC_INFO.did_panic = false;
-    }
 }
 
 pub fn get_errors() -> heapless::Vec<DeviceError, MAX_NUM_ERRORS> {
