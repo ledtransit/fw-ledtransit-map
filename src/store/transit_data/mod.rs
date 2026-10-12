@@ -2,7 +2,7 @@
 mod data;
 mod stops;
 
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     mutex::{Mutex, MutexGuard},
@@ -16,10 +16,9 @@ use crate::{
     profiling,
     store::app_settings,
     time,
-    util::NonMax,
 };
 
-pub use data::{MovementSegment, TransitData, VehicleMovement};
+pub use data::{Disruption, MovementSegment, Stop, TransitData, VehicleMovement, ViaStop};
 
 static TRANSIT_DATA_STORE: Mutex<CriticalSectionRawMutex, Option<TransitDataStore>> =
     Mutex::new(None);
@@ -34,7 +33,6 @@ pub struct TransitDataStore {
 
 #[derive(Clone, Default)]
 pub struct TransitDataState {
-    pub stop_id_to_loc_id_map: Vec<NonMax<u16>>, // Precomputed map of stop indices to pixel locations based on closest stop coordinates
     pub rendered_state: RendererState,
     pub renderer_out: RendererOutput,
     pub is_data_stale: bool, // No new transit data received in a while
@@ -67,7 +65,6 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
     } else {
         0
     };
-    let stop_id_to_loc_id_map = stops::map_stations_to_locations(&transit_data.stops);
 
     let mut store = TRANSIT_DATA_STORE.lock().await;
     let prev = store.as_ref();
@@ -95,7 +92,6 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
     *store = Some(TransitDataStore {
         data: transit_data,
         state: TransitDataState {
-            stop_id_to_loc_id_map,
             rendered_state,
             renderer_out,
             is_data_stale: false,
@@ -125,7 +121,7 @@ fn carry_over_vehicles(
         .vehicle_movements
         .iter()
         .map(|vehicle| {
-            let trip_id = (vehicle.line_id_x_trip_id & 0xFFFF) as u16;
+            let trip_id = vehicle.trip_id;
             prev_vehicles
                 .iter()
                 .find(|v| v.trip_id.as_option() == Some(trip_id))
@@ -146,7 +142,7 @@ fn carry_over_disruptions(
         .disruptions
         .iter()
         .map(|disruption| {
-            let disruption_id = (disruption.line_id_x_disruption_id & 0xFFFF) as u16;
+            let disruption_id = disruption.disruption_id;
             prev_disruptions
                 .iter()
                 .find(|d| d.disruption_id.as_option() == Some(disruption_id))
@@ -217,7 +213,6 @@ pub async fn update_line_configs() {
 pub async fn clear() {
     let mut store = TRANSIT_DATA_STORE.lock().await;
     if let Some(store) = store.as_mut() {
-        store.state.stop_id_to_loc_id_map = vec![];
         store.state.rendered_state.rendered_data_first_at_instant_ms = None;
         store.data = TransitData::default();
     }

@@ -1,29 +1,14 @@
 // Mapping of the transit data's stations to the map's pixel locations
-use alloc::vec::Vec;
-
-use crate::{config::CONFIG, net::ws_client::client_proto::Stop, trace, util::NonMax};
+use crate::{config::CONFIG, trace, util::NonMax};
 
 const MAX_STOP_TO_LOC_DIST_DEG_SQ_E7: i64 = 4_000_000_000; // < 1km
-const IS_STATION_FLAG: u32 = 0x80000000;
 
-/// The pixel location of each stop, by stop index. None for stops that
-/// aren't stations, or not on the map.
-pub fn map_stations_to_locations(stops: &[Stop]) -> Vec<NonMax<u16>> {
-    stops
-        .iter()
-        .enumerate()
-        .map(|(stop_idx, stop)| station_location(stop_idx, stop).unwrap_or(NonMax::NONE))
-        .collect()
-}
-
-fn station_location(stop_idx: usize, stop: &Stop) -> Option<NonMax<u16>> {
-    let is_station = (stop.is_station_x_latitude_e7 as u32 & IS_STATION_FLAG) != 0;
-    if !is_station {
-        return None;
-    }
-    let latitude_e7 = stop.is_station_x_latitude_e7 & 0x7FFFFFFF;
-    let longitude_e7 = stop.longitude_e7;
-
+/// The pixel location of the station. None if it isn't on the map.
+pub(super) fn station_location(
+    stop_idx: u16,
+    latitude_e7: i32,
+    longitude_e7: i32,
+) -> Option<NonMax<u16>> {
     let Some(loc_id) = lookup_nearest_location(latitude_e7, longitude_e7) else {
         trace::err!(
             "Stop ID {} at ({}, {}) has no nearby pixel location",

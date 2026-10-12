@@ -203,7 +203,7 @@ message DeviceErrors {
     repeated DeviceError errors = 1;
 }
 
-// [on-join/30s] Live processed transit data from feed server, packed fields for efficient in-memory layout
+// [on-join/30s] Live processed transit data from feed server. IDs are indices into the lines and stops (16 bit)
 message TransitData {
     required uint32 sourced_at_unix_timestamp = 1;
     required uint32 simulated_until_unix_timestamp = 2;
@@ -310,8 +310,9 @@ message Line {
 }
 
 message Stop {
-    required int32 is_station_x_latitude_e7 = 1; // bool + i31
-    required int32 longitude_e7 = 2;
+    required sint32 latitude_e7 = 1;
+    required sint32 longitude_e7 = 2;
+    required bool is_station = 3; // Else a via stop, only shaping the track between stations
 }
 
 message Coordinates {
@@ -320,28 +321,41 @@ message Coordinates {
 }
 
 message VehicleMovement {
-    required uint32 line_id_x_trip_id = 1; // u16 + u16
-    repeated MovementSegment segments = 2;
+    required uint32 line_id = 1;
+    required uint32 trip_id = 2; // Stable unique ID
+    required sint32 start_offset_seconds = 3; // When the first segment starts, relative to sourced_at_unix_timestamp
+    repeated MovementSegment segments = 4; // In order, each starting when the previous one ends
 }
 
 message MovementSegment {
-    required uint32 from_stop_id_x_to_stop_id = 1; // u16 + u16
-    required uint32 move_seconds_x_wait_seconds = 2; // u16 + u16
-    required int32 delayed_seconds_x_average_speed_kmph = 3; // i16 + u16, delay i16::MAX -> no data
-    required uint32 canceled_x_start_offset_seconds_x_via_total_move_seconds = 4; // bool + u15 + u16
-    repeated ViaStop via_stops = 5;
+    required uint32 from_stop_id = 1;
+    required uint32 to_stop_id = 2;
+    repeated ViaStop via_stops = 3; // In order from from_stop_id, the last leg from the last via stop to to_stop_id
+    required uint32 move_seconds = 4; // Moving from from_stop_id to to_stop_id (all legs)
+    required uint32 wait_seconds = 5; // Then waiting at to_stop_id
+    optional sint32 delayed_seconds = 6; // Unset: no real-time data
+    required bool cancelled = 7;
+    required uint32 average_speed_kmph = 8;
 }
 
 message ViaStop {
-    required uint32 stop_id_x_move_seconds = 1; // u16 + u16
+    required uint32 stop_id = 1;
+    required uint32 move_seconds = 2; // Of the leg to this stop
 }
 
 message Disruption {
-    required uint32 line_id_x_disruption_id = 1; // u16 + u16
-    required uint32 from_stop_id_x_to_stop_id = 2; // u16 + u16, to_stop_id u16::MAX -> only from stop affected
-    required uint32 direction_hint_from_stop_id_x_to_stop_id = 3; // u16 + u16, direction_hint_to_stop_id u16::MAX -> all directions at from_stop_id affected, same for from_stop_id
-    required uint32 bidirectional_x_entire_line_x_affects_all_lines_x_via_stop_id_x_stop_count = 4; // bool + bool + bool + u16 + u13, via_stop_id u16::MAX -> no via stop
-    required DisruptionType type = 5;
+    required uint32 line_id = 1;
+    required uint32 disruption_id = 2; // Stable unique ID
+    required uint32 from_stop_id = 3;
+    optional uint32 to_stop_id = 4; // If set, the disruption affects all stops connecting from_stop_id to to_stop_id, otherwise only from_stop_id
+    optional uint32 direction_hint_to_stop_id = 5; // If set, the disruption at from_stop_id only affects connections towards direction_hint_to_stop_id, otherwise all directions are affected
+    optional uint32 direction_hint_from_stop_id = 6; // If set, the disruption at from_stop_id only affects connections coming from direction_hint_from_stop_id, otherwise all directions are affected
+    required bool bidirectional = 7; // If true, the disruption affects both directions between from_stop_id and to_stop_id
+    required uint32 stop_count = 8; // Number of stops affected by the disruption
+    required bool entire_line = 9; // If true, the disruption affects all stops on the line
+    required bool affects_all_lines = 10; // If true, the disruption affects all lines that serve the affected stops (no alternative lines available)
+    required DisruptionType type = 11;
+    optional uint32 via_stop_id = 12; // If set, the disruption affects only connections that go through this stop, otherwise all connections are affected
 }
 
 enum DisruptionType {

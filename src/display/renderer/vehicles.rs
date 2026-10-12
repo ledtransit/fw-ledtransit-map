@@ -14,13 +14,11 @@ use super::{
 use crate::{
     config::CONFIG,
     display::path_find::{PathFindError, PathFinder},
-    net::ws_client::client_proto::{
-        ColorMode, DeviceConfig, Line, RealtimeFilter, Stop, VehicleFilter, ViaStop,
-    },
+    net::ws_client::client_proto::{ColorMode, DeviceConfig, Line, RealtimeFilter, VehicleFilter},
     profiling,
     store::{
         app_settings,
-        transit_data::{self, MovementSegment, TransitData, VehicleMovement},
+        transit_data::{self, MovementSegment, Stop, TransitData, VehicleMovement, ViaStop},
     },
     time, trace,
     util::{NonMax, lerp, rgb8_from_packed},
@@ -78,7 +76,7 @@ pub(super) async fn render_vehicles() {
     };
 
     let data = &store.data;
-    let stop_locations = &store.state.stop_id_to_loc_id_map;
+    let stop_locations = &data.stop_locations;
     let rendered_vehicles = &mut store.state.renderer_out.vehicles;
     let vehicles_with_rt_data_percent = real_time_percent(data);
     let mut path_finder = PathFinder::<MAX_OPEN_NODES, MAX_PATH_LEN>::new();
@@ -155,30 +153,23 @@ fn real_time_percent(data: &TransitData) -> f32 {
         .filter(|vehicle| {
             data.segments(vehicle)
                 .iter()
-                .any(|segment| delayed_seconds(segment).is_some())
+                .any(|segment| segment.delayed_seconds.is_some())
         })
         .count();
     with_real_time_data as f32 / vehicles.len().max(1) as f32 * 100.0
 }
 
-fn delayed_seconds(segment: &MovementSegment) -> NonMax<i16> {
-    NonMax::new_unchecked((segment.delayed_seconds_x_average_speed_kmph >> 16) as i16)
-}
-
 fn move_and_wait_seconds(segment: &MovementSegment) -> (u32, u32) {
     (
-        segment.move_seconds_x_wait_seconds >> 16,
-        segment.move_seconds_x_wait_seconds & 0xFFFF,
+        u32::from(segment.move_seconds),
+        u32::from(segment.wait_seconds),
     )
 }
 
 fn stop_coord(stops: &[Stop], stop_id: u32) -> Option<Coord> {
-    stops.get(stop_id as usize).map(|stop| {
-        (
-            stop.is_station_x_latitude_e7 & 0x7FFFFFFF,
-            stop.longitude_e7,
-        )
-    })
+    stops
+        .get(stop_id as usize)
+        .map(|stop| (stop.latitude_e7, stop.longitude_e7))
 }
 
 fn lerp_coord(from: Coord, to: Coord, ratio: f32) -> Coord {
@@ -206,17 +197,8 @@ fn vehicle_position<'a>(
             move_seconds + wait_seconds
         })
         .sum();
-    let start_offset_seconds = segments
-        .first()
-        .map(|segment| {
-            // Sign extend i15 to i16
-            (((segment.canceled_x_start_offset_seconds_x_via_total_move_seconds >> 16) & 0x7FFF)
-                as i16)
-                << 1
-                >> 1
-        })
-        .unwrap_or(0);
-    let movement_start_timestamp = (source_timestamp as i32 + start_offset_seconds as i32) as u32;
+    let movement_start_timestamp =
+        (source_timestamp as i32 + i32::from(vehicle.start_offset_seconds)) as u32;
     let movement_end_timestamp = movement_start_timestamp + total_duration_seconds;
     if now_timestamp_secs < movement_start_timestamp || now_timestamp_secs >= movement_end_timestamp
     {
@@ -225,8 +207,8 @@ fn vehicle_position<'a>(
 
     let (segment, segment_progress_secs) =
         current_segment(segments, movement_start_timestamp, now_timestamp_secs)?;
-    let from_stop_id = segment.from_stop_id_x_to_stop_id >> 16;
-    let to_stop_id = segment.from_stop_id_x_to_stop_id & 0xFFFF;
+    let from_stop_id = u32::from(segment.from_stop_id);
+    let to_stop_id = u32::from(segment.to_stop_id);
 
     let Some(from_coord) = stop_coord(stops, from_stop_id) else {
         trace::err!(
@@ -263,7 +245,6 @@ fn vehicle_position<'a>(
             segment_progress_secs,
             from_coord,
             to_coord,
-            to_stop_id,
         )
     };
 
@@ -306,20 +287,22 @@ fn coord_along_via_stops(
     segment_progress_secs: u32,
     from_coord: Coord,
     to_coord: Coord,
-    to_stop_id: u32,
 ) -> Coord {
-    let (move_seconds, _) = move_and_wait_seconds(segment);
-    let total_via_move_secs =
-        segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0xFFFF;
+    let via_stops = data.via_stops(segment);
+    let via_move_seconds: u32 = via_stops
+        .iter()
+        .map(|via_stop| u32::from(via_stop.move_seconds))
+        .sum();
     let last_leg = ViaStop {
-        stop_id_x_move_seconds: (to_stop_id << 16) | (move_seconds - total_via_move_secs),
+        stop_id: segment.to_stop_id,
+        move_seconds: u32::from(segment.move_seconds).saturating_sub(via_move_seconds) as u16,
     };
 
     let mut leg_start_coord = from_coord;
     let mut leg_start_secs = 0;
-    for via_stop in data.via_stops(segment).iter().chain(iter::once(&last_leg)) {
-        let via_stop_id = via_stop.stop_id_x_move_seconds >> 16;
-        let leg_move_secs = via_stop.stop_id_x_move_seconds & 0xFFFF;
+    for via_stop in via_stops.iter().chain(iter::once(&last_leg)) {
+        let via_stop_id = u32::from(via_stop.stop_id);
+        let leg_move_secs = u32::from(via_stop.move_seconds);
         let Some(via_coord) = stop_coord(&data.stops, via_stop_id) else {
             trace::err!(
                 "Vehicle {} segment references invalid VIA stop ID {} (malformed)",
@@ -359,8 +342,8 @@ fn render_vehicle(
         return None;
     }
 
-    let line_id = vehicle.line_id_x_trip_id >> 16;
-    let Some(line) = lines.get(line_id as usize) else {
+    let line_id = vehicle.line_id;
+    let Some(line) = lines.get(usize::from(line_id)) else {
         trace::err!(
             "Vehicle {} references invalid line ID {} (malformed)",
             vehicle_idx,
@@ -391,7 +374,7 @@ fn render_vehicle(
 
     // In real-time only mode, vehicles without real-time data are hidden,
     // unless too few have it (the map would be all empty)
-    let delayed_seconds = delayed_seconds(segment);
+    let delayed_seconds = segment.delayed_seconds;
     if config.realtime_filter == RealtimeFilter::RealtimeOnly as i32
         && delayed_seconds.is_none()
         && vehicles_with_rt_data_percent > 50.0
@@ -513,7 +496,7 @@ fn vehicle_pixel(
 fn vehicle_color(
     style: &VehicleStyle,
     line_color: RGB8,
-    line_id: u32,
+    line_id: u16,
     segment: &MovementSegment,
     delayed_seconds: NonMax<i16>,
 ) -> RGB8 {
@@ -528,10 +511,7 @@ fn vehicle_color(
         }
         Ok(ColorMode::DelayHeatmap) => {
             let Some(delay_secs) = delayed_seconds.as_option() else {
-                let is_canceled =
-                    (segment.canceled_x_start_offset_seconds_x_via_total_move_seconds & 0x80000000)
-                        != 0;
-                return if is_canceled {
+                return if segment.cancelled {
                     style.disruption_color
                 } else {
                     style.tertiary_color
@@ -545,7 +525,7 @@ fn vehicle_color(
             hsv_lerp(style.primary_hsv, style.secondary_hsv, ratio)
         }
         Ok(ColorMode::SpeedHeatmap) => {
-            let average_speed_kmph = segment.delayed_seconds_x_average_speed_kmph & 0xFFFF;
+            let average_speed_kmph = i32::from(segment.average_speed_kmph);
             let min_speed_kmph = config.min_speed_kmph as i32;
             let max_speed_kmph = (config.max_speed_kmph as i32).max(min_speed_kmph + 1);
             let speed_kmph = average_speed_kmph.clamp(min_speed_kmph, max_speed_kmph);

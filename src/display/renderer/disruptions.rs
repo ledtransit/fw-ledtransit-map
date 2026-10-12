@@ -9,10 +9,11 @@ use super::{color::finish_color, is_line_enabled, line_config, stop_location};
 use crate::{
     config::CONFIG,
     display::path_find::PathFinder,
-    net::ws_client::client_proto::{
-        DeviceConfig, Disruption, DisruptionFilter, DisruptionType, Line,
+    net::ws_client::client_proto::{DeviceConfig, DisruptionFilter, DisruptionType, Line},
+    store::{
+        app_settings,
+        transit_data::{self, Disruption},
     },
-    store::{app_settings, transit_data},
     trace,
     util::{NonMax, rgb8_from_packed},
 };
@@ -31,7 +32,7 @@ pub(super) async fn render_disruptions() {
     let now_instant_ms = Instant::now().as_millis() as u32;
     let config = app_settings::persist::get_settings().await.config;
     let data = &store.data;
-    let stop_locations = &store.state.stop_id_to_loc_id_map;
+    let stop_locations = &data.stop_locations;
     let rendered_disruptions = &mut store.state.renderer_out.disruptions;
     let mut path_finder = DisruptionPathFinder::new();
 
@@ -84,8 +85,8 @@ fn render_disruption(
     config: &DeviceConfig,
     path_finder: &mut DisruptionPathFinder,
 ) -> Option<(Vec<u16>, RGB8)> {
-    let line_id = disruption.line_id_x_disruption_id >> 16;
-    let Some(line) = lines.get(line_id as usize) else {
+    let line_id = disruption.line_id;
+    let Some(line) = lines.get(usize::from(line_id)) else {
         trace::err!(
             "Disruption {} references invalid line ID {} (malformed)",
             disruption_idx,
@@ -106,7 +107,7 @@ fn render_disruption(
         return None;
     }
 
-    let is_suspended = disruption.r#type == DisruptionType::Suspended as i32;
+    let is_suspended = disruption.kind == DisruptionType::Suspended;
     let color = rgb8_from_packed(if is_suspended {
         config.disruption_primary_color_rgb8
     } else {
@@ -118,22 +119,11 @@ fn render_disruption(
         config.disruption_brightness_percent as f32 / 100.0,
     );
 
-    let from_stop_id = (disruption.from_stop_id_x_to_stop_id >> 16) as u16;
-    let to_stop_id = (disruption.from_stop_id_x_to_stop_id & 0xFFFF) as u16;
-    let direction_hint_from_stop_id =
-        (disruption.direction_hint_from_stop_id_x_to_stop_id >> 16) as u16;
-    let direction_hint_to_stop_id =
-        (disruption.direction_hint_from_stop_id_x_to_stop_id & 0xFFFF) as u16;
-    let packed =
-        disruption.bidirectional_x_entire_line_x_affects_all_lines_x_via_stop_id_x_stop_count;
-    let is_bidirectional = (packed & 0x80000000) != 0;
-    let affects_all_lines = (packed & 0x20000000) != 0;
-    let via_stop_id = ((packed >> 13) & 0xFFFF) as u16;
-
+    let from_stop_id = disruption.from_stop_id;
     if !is_shown_by_filter(
         config.disruption_filter,
-        disruption.r#type,
-        affects_all_lines,
+        disruption.kind,
+        disruption.affects_all_lines,
     ) {
         return None;
     }
@@ -146,8 +136,14 @@ fn render_disruption(
         );
         return None;
     };
-    let to_loc_id = optional_stop_location(disruption_idx, stop_locations, to_stop_id, "TO")?;
-    let via_loc_id = optional_stop_location(disruption_idx, stop_locations, via_stop_id, "VIA")?;
+    let to_loc_id =
+        optional_stop_location(disruption_idx, stop_locations, disruption.to_stop_id, "TO")?;
+    let via_loc_id = optional_stop_location(
+        disruption_idx,
+        stop_locations,
+        disruption.via_stop_id,
+        "VIA",
+    )?;
 
     let pixels = match to_loc_id {
         // Between two stops
@@ -157,7 +153,7 @@ fn render_disruption(
             from_loc_id,
             via_loc_id,
             to_loc_id,
-            is_bidirectional,
+            disruption.bidirectional,
         )?,
         // At one stop, in a direction
         None => vec![direction_pixel(
@@ -165,19 +161,23 @@ fn render_disruption(
             path_finder,
             stop_locations,
             from_loc_id,
-            direction_hint_from_stop_id,
-            direction_hint_to_stop_id,
+            disruption.direction_hint_from_stop_id,
+            disruption.direction_hint_to_stop_id,
         )?],
     };
     Some((pixels, rgb))
 }
 
-fn is_shown_by_filter(filter: i32, disruption_type: i32, affects_all_lines: bool) -> bool {
-    let is_suspended = disruption_type == DisruptionType::Suspended as i32;
+fn is_shown_by_filter(
+    filter: i32,
+    disruption_type: DisruptionType,
+    affects_all_lines: bool,
+) -> bool {
+    let is_suspended = disruption_type == DisruptionType::Suspended;
     match DisruptionFilter::try_from(filter) {
         // Severe: no alternative (all lines affected), and more than minor delays
         Ok(DisruptionFilter::Severe) => {
-            affects_all_lines && disruption_type != DisruptionType::MinorDelays as i32
+            affects_all_lines && disruption_type != DisruptionType::MinorDelays
         }
         Ok(DisruptionFilter::NoServiceSevere) => affects_all_lines && is_suspended,
         Ok(DisruptionFilter::NoServiceAll) => is_suspended,
@@ -190,10 +190,10 @@ fn is_shown_by_filter(filter: i32, disruption_type: i32, affects_all_lines: bool
 fn optional_stop_location(
     disruption_idx: usize,
     stop_locations: &[NonMax<u16>],
-    stop_id: u16,
+    stop_id: Option<u16>,
     stop_kind: &str,
 ) -> Option<Option<u16>> {
-    let Some(stop_id) = NonMax::new_unchecked(stop_id).as_option() else {
+    let Some(stop_id) = stop_id else {
         return Some(None);
     };
     let location = stop_location(stop_locations, stop_id as usize);
@@ -277,11 +277,11 @@ fn direction_pixel(
     path_finder: &mut DisruptionPathFinder,
     stop_locations: &[NonMax<u16>],
     from_loc_id: u16,
-    direction_hint_from_stop_id: u16,
-    direction_hint_to_stop_id: u16,
+    direction_hint_from_stop_id: Option<u16>,
+    direction_hint_to_stop_id: Option<u16>,
 ) -> Option<u16> {
-    let hint_to = NonMax::new_unchecked(direction_hint_to_stop_id).as_option();
-    let hint_from = NonMax::new_unchecked(direction_hint_from_stop_id).as_option();
+    let hint_to = direction_hint_to_stop_id;
+    let hint_from = direction_hint_from_stop_id;
     let Some(hint_stop_id) = hint_to.or(hint_from) else {
         trace::err!(
             "Disruption {} has no valid direction hint stop ID (malformed)",

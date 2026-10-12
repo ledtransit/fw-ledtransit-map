@@ -162,13 +162,15 @@ where
                 .map(|feed_source| data.feed_source = feed_source)
                 .is_ok(),
             4 => Line::decode(part).map(|line| data.lines.push(line)).is_ok(),
-            5 => Stop::decode(part).map(|stop| data.stops.push(stop)).is_ok(),
+            5 => Stop::decode(part)
+                .ok()
+                .is_some_and(|stop| data.push_stop(stop).is_ok()),
             6 => VehicleMovement::decode(part)
                 .ok()
                 .is_some_and(|vehicle| data.push_vehicle(vehicle).is_ok()),
             _ => Disruption::decode(part)
-                .map(|disruption| data.disruptions.push(disruption))
-                .is_ok(),
+                .ok()
+                .is_some_and(|disruption| data.push_disruption(disruption).is_ok()),
         };
         if !decoded {
             return Err(WsClientError::DataError);
