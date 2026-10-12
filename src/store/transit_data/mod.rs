@@ -1,4 +1,5 @@
 // The latest transit data from the server, with the renderer's state of it
+mod data;
 mod stops;
 
 use alloc::{string::String, vec, vec::Vec};
@@ -11,15 +12,14 @@ use embassy_time::Instant;
 
 use crate::{
     display::renderer::{self, RenderedDisruption, RenderedVehicle, RendererOutput, RendererState},
-    net::ws_client::{
-        self,
-        client_proto::{LineConfig, TransitData},
-    },
+    net::ws_client::{self, client_proto::LineConfig},
     profiling,
     store::app_settings,
     time,
     util::NonMax,
 };
+
+pub use data::{MovementSegment, TransitData, VehicleMovement};
 
 static TRANSIT_DATA_STORE: Mutex<CriticalSectionRawMutex, Option<TransitDataStore>> =
     Mutex::new(None);
@@ -91,6 +91,7 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
         feed_source: transit_data.feed_source.clone(),
         ..prev.map(|s| s.stats.clone()).unwrap_or_default()
     };
+    // Replaces (frees) the previous data
     *store = Some(TransitDataStore {
         data: transit_data,
         state: TransitDataState {
@@ -103,6 +104,7 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
         stats,
     });
     drop(store);
+    profiling::once!(first_transit_data_cleared);
     if was_stale {
         STALE_CHANGED.signal(());
     }

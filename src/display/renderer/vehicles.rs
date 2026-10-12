@@ -15,11 +15,13 @@ use crate::{
     config::CONFIG,
     display::path_find::{PathFindError, PathFinder},
     net::ws_client::client_proto::{
-        ColorMode, DeviceConfig, Line, MovementSegment, RealtimeFilter, Stop, VehicleFilter,
-        VehicleMovement, ViaStop,
+        ColorMode, DeviceConfig, Line, RealtimeFilter, Stop, VehicleFilter, ViaStop,
     },
     profiling,
-    store::{app_settings, transit_data},
+    store::{
+        app_settings,
+        transit_data::{self, MovementSegment, TransitData, VehicleMovement},
+    },
     time, trace,
     util::{NonMax, lerp, rgb8_from_packed},
 };
@@ -78,7 +80,7 @@ pub(super) async fn render_vehicles() {
     let data = &store.data;
     let stop_locations = &store.state.stop_id_to_loc_id_map;
     let rendered_vehicles = &mut store.state.renderer_out.vehicles;
-    let vehicles_with_rt_data_percent = real_time_percent(&data.vehicle_movements);
+    let vehicles_with_rt_data_percent = real_time_percent(data);
     let mut path_finder = PathFinder::<MAX_OPEN_NODES, MAX_PATH_LEN>::new();
 
     let mut num_vehicles_available: u32 = 0;
@@ -96,7 +98,7 @@ pub(super) async fn render_vehicles() {
         let Some(position) = vehicle_position(
             vehicle_idx,
             vehicle,
-            &data.stops,
+            data,
             now_timestamp_secs,
             data.sourced_at_unix_timestamp,
         ) else {
@@ -146,12 +148,12 @@ pub(super) async fn render_vehicles() {
 }
 
 // Share of vehicles with real-time data (a delay on any segment)
-fn real_time_percent(vehicles: &[VehicleMovement]) -> f32 {
+fn real_time_percent(data: &TransitData) -> f32 {
+    let vehicles = &data.vehicle_movements;
     let with_real_time_data = vehicles
         .iter()
         .filter(|vehicle| {
-            vehicle
-                .segments
+            data.segments(vehicle)
                 .iter()
                 .any(|segment| delayed_seconds(segment).is_some())
         })
@@ -190,21 +192,21 @@ fn lerp_coord(from: Coord, to: Coord, ratio: f32) -> Coord {
 /// or its data is malformed.
 fn vehicle_position<'a>(
     vehicle_idx: usize,
-    vehicle: &'a VehicleMovement,
-    stops: &[Stop],
+    vehicle: &VehicleMovement,
+    data: &'a TransitData,
     now_timestamp_secs: u32,
     source_timestamp: u32,
 ) -> Option<VehiclePosition<'a>> {
-    let total_duration_seconds: u32 = vehicle
-        .segments
+    let stops = &data.stops;
+    let segments = data.segments(vehicle);
+    let total_duration_seconds: u32 = segments
         .iter()
         .map(|segment| {
             let (move_seconds, wait_seconds) = move_and_wait_seconds(segment);
             move_seconds + wait_seconds
         })
         .sum();
-    let start_offset_seconds = vehicle
-        .segments
+    let start_offset_seconds = segments
         .first()
         .map(|segment| {
             // Sign extend i15 to i16
@@ -222,7 +224,7 @@ fn vehicle_position<'a>(
     }
 
     let (segment, segment_progress_secs) =
-        current_segment(vehicle, movement_start_timestamp, now_timestamp_secs)?;
+        current_segment(segments, movement_start_timestamp, now_timestamp_secs)?;
     let from_stop_id = segment.from_stop_id_x_to_stop_id >> 16;
     let to_stop_id = segment.from_stop_id_x_to_stop_id & 0xFFFF;
 
@@ -247,7 +249,7 @@ fn vehicle_position<'a>(
     let coord = if segment_progress_secs >= move_seconds {
         // Waiting at the end of the segment
         to_coord
-    } else if segment.via_stops.is_empty() {
+    } else if data.via_stops(segment).is_empty() {
         lerp_coord(
             from_coord,
             to_coord,
@@ -257,7 +259,7 @@ fn vehicle_position<'a>(
         coord_along_via_stops(
             vehicle_idx,
             segment,
-            stops,
+            data,
             segment_progress_secs,
             from_coord,
             to_coord,
@@ -278,12 +280,12 @@ fn vehicle_position<'a>(
 
 // The segment the vehicle is on now, and the seconds since it started it
 fn current_segment(
-    vehicle: &VehicleMovement,
+    segments: &[MovementSegment],
     movement_start_timestamp: u32,
     now_timestamp_secs: u32,
 ) -> Option<(&MovementSegment, u32)> {
     let mut segment_start_timestamp = movement_start_timestamp;
-    for segment in vehicle.segments.iter() {
+    for segment in segments {
         let (move_seconds, wait_seconds) = move_and_wait_seconds(segment);
         let segment_end_timestamp = segment_start_timestamp + move_seconds + wait_seconds;
         if now_timestamp_secs >= segment_start_timestamp
@@ -300,7 +302,7 @@ fn current_segment(
 fn coord_along_via_stops(
     vehicle_idx: usize,
     segment: &MovementSegment,
-    stops: &[Stop],
+    data: &TransitData,
     segment_progress_secs: u32,
     from_coord: Coord,
     to_coord: Coord,
@@ -315,10 +317,10 @@ fn coord_along_via_stops(
 
     let mut leg_start_coord = from_coord;
     let mut leg_start_secs = 0;
-    for via_stop in segment.via_stops.iter().chain(iter::once(&last_leg)) {
+    for via_stop in data.via_stops(segment).iter().chain(iter::once(&last_leg)) {
         let via_stop_id = via_stop.stop_id_x_move_seconds >> 16;
         let leg_move_secs = via_stop.stop_id_x_move_seconds & 0xFFFF;
-        let Some(via_coord) = stop_coord(stops, via_stop_id) else {
+        let Some(via_coord) = stop_coord(&data.stops, via_stop_id) else {
             trace::err!(
                 "Vehicle {} segment references invalid VIA stop ID {} (malformed)",
                 vehicle_idx,

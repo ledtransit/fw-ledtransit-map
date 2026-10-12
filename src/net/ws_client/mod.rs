@@ -7,6 +7,7 @@ mod incoming;
 mod outgoing;
 mod pending;
 mod tls;
+mod transit_stream;
 
 use core::{
     convert::Infallible,
@@ -43,13 +44,17 @@ use crate::{
     net::wifi_net::{self, SharedWifiController},
     ota,
     profiling::{self, TimedTcp},
-    store::{app_settings, transit_data},
+    store::{
+        app_settings,
+        transit_data::{self, TransitData},
+    },
     trace,
 };
 use client_proto::{ClientMessage, Echo, client_message::Payload};
 pub use confirmation::confirm_command;
 use pending::{PendingMessages, StateMessage};
 use tls::ResumingTls;
+use transit_stream::FrameReader;
 
 pub mod client_proto {
     pub const VERSION: u32 = 1;
@@ -61,7 +66,10 @@ const TCP_TX_BUF_SIZE: usize = 512;
 const TCP_BUF_POOL_SIZE: usize = 1;
 
 const HTTP_MAX_NUM_HEADERS: usize = 32;
-const HTTP_WS_RX_BUF_SIZE: usize = 20 * 1024;
+// The HTTP requests and responses connecting, then each message (the config
+// the largest, under 1 KB). Transit data is decoded while it's received
+// instead, only each of its parts (e.g. a vehicle) needs to fit
+const HTTP_WS_RX_BUF_SIZE: usize = 4 * 1024;
 
 const PROTO_TRANSIT_DATA_MAGIC: [u8; 3] = [0x08, 0x01, 0x52]; // First 3 bytes of encoded ClientMessage.TransitData message
 
@@ -451,25 +459,32 @@ where
             .map_err(WsClientError::Timeout)?
             .map_err(WsClientError::WsError)?;
         let header_received = profiling::now();
-        let payload = with_timeout(FRAME_PAYLOAD_TIMEOUT, header.recv_payload(&mut *rx, buf))
-            .await
-            .map_err(WsClientError::Timeout)?
-            .map_err(WsClientError::WsError)?;
+        let mut reader = FrameReader::new(&mut *rx, &header, buf);
 
         match header.frame_type {
             FrameType::Binary(_) => {
-                if payload.starts_with(&PROTO_TRANSIT_DATA_MAGIC) {
-                    profiling::once!(first_transit_data_header_received, header_received);
-                    profiling::once!(first_transit_data_payload_received);
-                    if !prepare_for_transit_data().await {
-                        continue;
+                // Handled once received: only receiving it has the timeout
+                let payload_len = reader.remaining();
+                let received = with_timeout(FRAME_PAYLOAD_TIMEOUT, receive_binary(&mut reader))
+                    .await
+                    .map_err(WsClientError::Timeout)??;
+                match received {
+                    Received::Message(message) => {
+                        incoming::handle_message(message, payload_len).await
                     }
+                    Received::TransitData(data) => {
+                        profiling::once!(first_transit_data_header_received, header_received);
+                        profiling::once!(first_transit_data_payload_received);
+                        incoming::on_transit_data(data, payload_len).await
+                    }
+                    Received::Ignored => {}
                 }
-                let message = decode_message(payload)?;
-                incoming::handle_message(message, payload.len()).await;
             }
             FrameType::Ping => {
                 debug!("WS: Got ping, sending pong");
+                with_timeout(FRAME_PAYLOAD_TIMEOUT, reader.skip(reader.remaining()))
+                    .await
+                    .map_err(WsClientError::Timeout)??;
                 send_pong();
             }
             FrameType::Close => {
@@ -495,18 +510,50 @@ where
     }
 }
 
-/// Frees the previous transit data before decoding new data, so both don't
-/// have to fit into memory at once. False if transit data is ignored for now.
+enum Received {
+    Message(Payload),
+    TransitData(TransitData),
+    Ignored,
+}
+
+// Transit data decoded while it's received, any other message once it's
+// received whole (into the buffer)
+async fn receive_binary<R>(reader: &mut FrameReader<'_, R>) -> Result<Received, WsClientError>
+where
+    R: Read<Error = SocketError>,
+{
+    let payload_len = reader.remaining();
+    let magic_len = PROTO_TRANSIT_DATA_MAGIC.len().min(payload_len);
+    if reader.peek(magic_len).await? != PROTO_TRANSIT_DATA_MAGIC {
+        let payload = reader.take(payload_len).await?;
+        return decode_message(payload).map(Received::Message);
+    }
+
+    if !prepare_for_transit_data().await {
+        reader.skip(payload_len).await?;
+        return Ok(Received::Ignored);
+    }
+    reader.skip(magic_len).await?;
+    transit_stream::decode_transit_data(reader)
+        .await
+        .map(Received::TransitData)
+}
+
+/// False if transit data is ignored for now. Else the previous data stays
+/// until the new one is decoded (both fit, compact): it's still shown
+/// meanwhile, while the new one is received.
 async fn prepare_for_transit_data() -> bool {
     let session_settings = app_settings::session::get_settings().await;
     if session_settings.updating_firmware {
         // The update needs the memory
         return false;
     }
-    transit_data::clear().await;
-    profiling::once!(first_transit_data_cleared);
     // The LED test mode doesn't show transit data
-    !session_settings.test_mode_active
+    if session_settings.test_mode_active {
+        transit_data::clear().await;
+        return false;
+    }
+    true
 }
 
 fn decode_message(payload: &[u8]) -> Result<Payload, WsClientError> {

@@ -5,7 +5,7 @@ use embassy_time::{Duration, Instant};
 use super::{
     WsClientError,
     client_proto::{
-        DeviceCommand, DeviceConfig, DeviceStatus, DeviceUpdate, ServerInfo, TransitData,
+        DeviceCommand, DeviceConfig, DeviceStatus, DeviceUpdate, ServerInfo,
         client_message::Payload,
     },
     confirmation, quit, send_config, send_echo, send_info, send_status, send_telemetry,
@@ -15,7 +15,7 @@ use crate::{
     ota, profiling,
     store::{
         app_settings::{self, persist::PersistSettings},
-        transit_data,
+        transit_data::{self, TransitData},
     },
     trace,
 };
@@ -44,7 +44,12 @@ pub async fn handle_message(payload: Payload, payload_len: usize) {
         Payload::Config(config) => on_config(config).await,
         Payload::Command(command) => on_command(command).await,
         Payload::Echo(echo) => send_echo(echo).await,
-        Payload::TransitData(data) => on_transit_data(data, payload_len).await,
+        // Only if it fit into the receive buffer: usually decoded while it's
+        // received (see transit_stream)
+        Payload::TransitData(data) => match TransitData::try_from(data) {
+            Ok(data) => on_transit_data(data, payload_len).await,
+            Err(e) => trace::err!("WS: Transit data too large: {:?}", e),
+        },
         Payload::DeviceUpdate(update) => on_device_update(update).await,
         _ => trace::err!("WS: Unhandled server message payload"),
     }
@@ -214,14 +219,16 @@ pub(super) async fn on_command_confirmed(command: DeviceCommand) {
     }
 }
 
-async fn on_transit_data(data: TransitData, payload_len: usize) {
+pub(super) async fn on_transit_data(data: TransitData, payload_len: usize) {
     profiling::once!(first_transit_data_decoded);
     info!(
-        "WS: Received transit data update: {} lines, {} stops, {} vehicles, {} disruptions",
+        "WS: Received transit data update: {} lines, {} stops, {} vehicles, {} disruptions ({} bytes, {} bytes in memory)",
         data.lines.len(),
         data.stops.len(),
         data.vehicle_movements.len(),
-        data.disruptions.len()
+        data.disruptions.len(),
+        payload_len,
+        data.heap_size()
     );
     transit_data::on_data(data, payload_len).await;
     profiling::once!(first_line_configs_updated);
