@@ -35,7 +35,7 @@ use esp_hal::{clock::CpuClock, ram, timer::timg::TimerGroup};
 use crate::{
     buttons::Button,
     display::{
-        leds::{self, LedColor, LedPixels, LedStatus},
+        leds::{self, LedPixels, LedStatus},
         painter, renderer,
     },
     net::wifi_net,

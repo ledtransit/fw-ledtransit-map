@@ -15,7 +15,6 @@ use crate::{
     config::CONFIG,
     display::path_find::{PathFindError, PathFinder},
     net::ws_client::{
-        self,
         client_proto::{
             ColorMode, DeviceConfig, Line, MovementSegment, RealtimeFilter, Stop, VehicleFilter,
             VehicleMovement, ViaStop,
@@ -132,12 +131,6 @@ pub(super) async fn render_vehicles() {
         if is_real_time {
             num_vehicles_visible_real_time += 1;
         }
-    }
-
-    // On the first render, or when requested
-    if store.stats.telemetry_pending {
-        store.stats.telemetry_pending = false;
-        ws_client::send_telemetry();
     }
 
     let rendered_state = &mut store.state.rendered_state;

@@ -5,9 +5,11 @@ mod confirmation;
 mod frames;
 mod incoming;
 mod outgoing;
+mod pending;
 mod tls;
 
 use core::{
+    convert::Infallible,
     ffi::CStr,
     net::SocketAddr,
     sync::atomic::{AtomicBool, Ordering},
@@ -21,7 +23,7 @@ use edge_nal_embassy::{Tcp, TcpBuffers, TcpError};
 use edge_nal_tls::TlsConnector;
 use edge_ws::{FrameHeader, FrameType};
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either3, select3};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net::{Stack, dns};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
@@ -46,6 +48,7 @@ use crate::{
 };
 use client_proto::{ClientMessage, Echo, client_message::Payload};
 pub use confirmation::confirm_command;
+use pending::{PendingMessages, StateMessage};
 use tls::ResumingTls;
 
 pub mod client_proto {
@@ -73,8 +76,15 @@ const RECONNECT_DELAY: Duration = Duration::from_secs(3);
 // Transit data arrives every 30 s
 const FRAME_HEADER_TIMEOUT: Duration = Duration::from_secs(45);
 const FRAME_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(10);
+// Telemetry while transit data flows, and while it's stale (the gateway stops
+// sending it, e.g. with the light off)
+const TELEMETRY_INTERVAL_ACTIVE: Duration = Duration::from_secs(15);
+const TELEMETRY_INTERVAL_STALE: Duration = Duration::from_secs(5 * 60);
 
-static WS_CLIENT_CHANNEL: Channel<CriticalSectionRawMutex, WsClientNotify, 10> = Channel::new();
+// Messages to send: the latest state (each sent once however often requested
+// while pending), and echoes (each sent, in order)
+static STATE_MESSAGES: PendingMessages = PendingMessages::new();
+static ECHO_CHANNEL: Channel<CriticalSectionRawMutex, Echo, 4> = Channel::new();
 static WS_CLIENT_QUIT_SIGNAL: Signal<CriticalSectionRawMutex, Result<(), WsClientError>> =
     Signal::new();
 // After a TLS error connecting, the next attempt allows TLS 1.3 (and the other
@@ -90,18 +100,6 @@ type SocketError = CondType<SSL_ENABLED, SessionError, TcpError>;
 type HttpError =
     CondType<SSL_ENABLED, edge_http::io::Error<SessionError>, edge_http::io::Error<TcpError>>;
 type WsError = CondType<SSL_ENABLED, edge_ws::Error<SessionError>, edge_ws::Error<TcpError>>;
-
-// Messages to send
-enum WsClientNotify {
-    Status,
-    Config,
-    Telemetry,
-    Errors,
-    Echo(Echo),
-    Info,
-    Pong,
-    Profiling,
-}
 
 #[derive(defmt::Format, Debug)]
 pub enum WsClientError {
@@ -139,45 +137,41 @@ pub fn spawn(
 }
 
 pub fn send_status() {
-    try_queue_event(WsClientNotify::Status);
+    STATE_MESSAGES.request(StateMessage::Status);
 }
 
 pub fn send_config() {
-    try_queue_event(WsClientNotify::Config);
+    STATE_MESSAGES.request(StateMessage::Config);
 }
 
 pub fn send_telemetry() {
-    try_queue_event(WsClientNotify::Telemetry);
+    STATE_MESSAGES.request(StateMessage::Telemetry);
 }
 
 pub fn send_errors() {
-    try_queue_event(WsClientNotify::Errors);
+    STATE_MESSAGES.request(StateMessage::Errors);
 }
 
-pub fn send_echo(echo: Echo) {
-    try_queue_event(WsClientNotify::Echo(echo));
+/// Waits while earlier echoes are still being sent.
+pub async fn send_echo(echo: Echo) {
+    ECHO_CHANNEL.send(echo).await;
 }
 
 pub fn send_info() {
-    try_queue_event(WsClientNotify::Info);
+    STATE_MESSAGES.request(StateMessage::Info);
 }
 
 pub fn send_pong() {
-    try_queue_event(WsClientNotify::Pong);
+    STATE_MESSAGES.request(StateMessage::Pong);
 }
 
 pub fn send_profiling() {
-    try_queue_event(WsClientNotify::Profiling);
+    STATE_MESSAGES.request(StateMessage::Profiling);
 }
 
 /// Ends the connection, with the reason to act on.
 pub fn quit(result: Result<(), WsClientError>) {
     WS_CLIENT_QUIT_SIGNAL.signal(result);
-}
-
-// Dropped when the queue is full
-fn try_queue_event(event: WsClientNotify) {
-    WS_CLIENT_CHANNEL.try_send(event).ok();
 }
 
 #[embassy_executor::task]
@@ -374,18 +368,21 @@ async fn run(
         socket.split()
     };
 
-    WS_CLIENT_CHANNEL.clear();
+    STATE_MESSAGES.clear();
+    ECHO_CHANNEL.clear();
     send_status();
 
     // Until the connection closes, fails, or the application quits it
-    let result = match select3(
+    let result = match select4(
         receive_messages(&mut rx, buf),
-        send_queued_messages(&mut tx, controller),
+        send_pending_messages(&mut tx, controller),
+        send_telemetry_periodically(),
         WS_CLIENT_QUIT_SIGNAL.wait(),
     )
     .await
     {
-        Either3::First(result) | Either3::Second(result) | Either3::Third(result) => result,
+        Either4::First(result) | Either4::Second(result) | Either4::Fourth(result) => result,
+        Either4::Third(never) => match never {},
     };
     info!("WebSocket connection closed, shutting down ({:?})", result);
     // A command can't be confirmed any more once the connection it came over
@@ -525,7 +522,7 @@ fn decode_message(payload: &[u8]) -> Result<Payload, WsClientError> {
     message.payload.ok_or(WsClientError::DataError)
 }
 
-async fn send_queued_messages<W>(
+async fn send_pending_messages<W>(
     tx: &mut W,
     controller: &'static SharedWifiController,
 ) -> Result<(), WsClientError>
@@ -534,23 +531,46 @@ where
 {
     let mut rng = Rng::new();
     loop {
-        let message = match WS_CLIENT_CHANNEL.receive().await {
-            WsClientNotify::Pong => {
+        let state_message = match select(ECHO_CHANNEL.receive(), STATE_MESSAGES.next()).await {
+            Either::First(echo) => {
+                frames::send_binary(tx, &outgoing::echo(echo), &mut rng).await?;
+                continue;
+            }
+            Either::Second(state_message) => state_message,
+        };
+        let message = match state_message {
+            StateMessage::Pong => {
                 frames::send_pong(tx, &mut rng).await?;
                 continue;
             }
-            WsClientNotify::Errors if trace::get_errors().is_empty() => continue,
-            WsClientNotify::Errors => outgoing::errors().await,
-            WsClientNotify::Status => outgoing::status().await,
-            WsClientNotify::Config => outgoing::config().await,
-            WsClientNotify::Telemetry => outgoing::telemetry(controller).await,
-            WsClientNotify::Echo(echo) => outgoing::echo(echo),
-            WsClientNotify::Info => outgoing::info().await,
-            WsClientNotify::Profiling => match outgoing::profiling() {
+            StateMessage::Errors if trace::get_errors().is_empty() => continue,
+            StateMessage::Errors => outgoing::errors().await,
+            StateMessage::Status => outgoing::status().await,
+            StateMessage::Config => outgoing::config().await,
+            StateMessage::Telemetry => outgoing::telemetry(controller).await,
+            StateMessage::Info => outgoing::info().await,
+            StateMessage::Profiling => match outgoing::profiling() {
                 Some(message) => message,
                 None => continue,
             },
         };
         frames::send_binary(tx, &message, &mut rng).await?;
+    }
+}
+
+/// Telemetry while connected, besides what's sent on changes.
+async fn send_telemetry_periodically() -> Infallible {
+    loop {
+        let interval = if transit_data::is_stale().await {
+            TELEMETRY_INTERVAL_STALE
+        } else {
+            TELEMETRY_INTERVAL_ACTIVE
+        };
+        // On a change, starts over with the other interval
+        if let Either::First(()) =
+            select(Timer::after(interval), transit_data::wait_stale_changed()).await
+        {
+            send_telemetry();
+        }
     }
 }

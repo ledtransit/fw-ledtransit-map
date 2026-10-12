@@ -12,7 +12,10 @@ use crate::{
         leds::{self, LedPixels},
         renderer::{RENDERER_FPS, RenderedDisruption, RenderedVehicle},
     },
-    net::ws_client::client_proto::{DeviceConfig, DisruptionInterval, DisruptionMode, RenderMode},
+    net::ws_client::{
+        self,
+        client_proto::{DeviceConfig, DisruptionInterval, DisruptionMode, RenderMode},
+    },
     profiling,
     store::{app_settings, transit_data},
     time,
@@ -113,8 +116,11 @@ async fn draw_frame() {
         .saturating_sub(rendered_state.config_last_changed_at_instant_ms as u64)
         < RENDERER_FRAME_TIME_MS * 2;
 
+    // Begin frame, clear buffer
     let mut pixel_buf = leds::get_mut_pixel_buffer().await;
     pixel_buf.fill(BLACK);
+
+    // Draw the disruptions and vehicles, with transitions
     if config.disruptions_enabled {
         draw_disruptions(
             &mut pixel_buf,
@@ -134,9 +140,19 @@ async fn draw_frame() {
         rendered_data_first_at_instant_ms,
     );
 
+    // Count non-black pixels
     store.stats.num_pixels_on = pixel_buf.iter().filter(|pixel| **pixel != BLACK).count() as u32;
     leds::update();
     profiling::once!(first_transit_data_painted);
+
+    // Send telemetry once the new data (or config) is fully shown
+    let changed_at_ms = rendered_data_first_at_instant_ms
+        .max(rendered_state.config_last_changed_at_instant_ms) as u64;
+    let settled_at_ms = changed_at_ms + RENDERER_FRAME_TIME_MS + transition_duration_ms;
+    if store.state.painter_telemetry_pending && now_instant_ms >= settled_at_ms {
+        store.state.painter_telemetry_pending = false;
+        ws_client::send_telemetry();
+    }
 }
 
 async fn go_offline(light_on: bool) {

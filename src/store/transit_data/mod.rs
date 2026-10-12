@@ -5,6 +5,7 @@ use alloc::{string::String, vec, vec::Vec};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     mutex::{Mutex, MutexGuard},
+    signal::Signal,
 };
 use embassy_time::Instant;
 
@@ -22,6 +23,8 @@ use crate::{
 
 static TRANSIT_DATA_STORE: Mutex<CriticalSectionRawMutex, Option<TransitDataStore>> =
     Mutex::new(None);
+// Raised when the data goes stale, or new data arrives after it was
+static STALE_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub struct TransitDataStore {
     pub data: TransitData,
@@ -35,11 +38,11 @@ pub struct TransitDataState {
     pub rendered_state: RendererState,
     pub renderer_out: RendererOutput,
     pub is_data_stale: bool, // No new transit data received in a while
+    pub painter_telemetry_pending: bool,
 }
 
 #[derive(Clone, Default)]
 pub struct TransitDataStats {
-    pub telemetry_pending: bool,
     pub received_at_timestamp: u32, // When data was received from server
     pub sourced_at_timestamp: u32,  // When data was sourced by server from feed
     pub simulated_until_timestamp: u32,
@@ -68,6 +71,7 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
 
     let mut store = TRANSIT_DATA_STORE.lock().await;
     let prev = store.as_ref();
+    let was_stale = prev.is_some_and(|s| s.state.is_data_stale);
     let renderer_out = RendererOutput {
         vehicles: carry_over_vehicles(&transit_data, prev),
         disruptions: carry_over_disruptions(&transit_data, prev),
@@ -80,7 +84,6 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
             .unwrap_or_default()
     };
     let stats = TransitDataStats {
-        telemetry_pending: true,
         received_at_timestamp: now_timestamp,
         sourced_at_timestamp: transit_data.sourced_at_unix_timestamp,
         simulated_until_timestamp: transit_data.simulated_until_unix_timestamp,
@@ -95,10 +98,14 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
             rendered_state,
             renderer_out,
             is_data_stale: false,
+            painter_telemetry_pending: true,
         },
         stats,
     });
     drop(store);
+    if was_stale {
+        STALE_CHANGED.signal(());
+    }
     profiling::once!(first_transit_data_stored);
 
     update_line_configs().await;
@@ -218,6 +225,9 @@ pub async fn on_data_stale() {
     clear().await;
     let mut store = TRANSIT_DATA_STORE.lock().await;
     if let Some(store) = store.as_mut() {
+        if !store.state.is_data_stale {
+            STALE_CHANGED.signal(());
+        }
         store.state.is_data_stale = true;
         store.state.rendered_state.drawn_first_frame_at_instant_ms = None;
         store.state.renderer_out = RendererOutput::default();
@@ -226,6 +236,19 @@ pub async fn on_data_stale() {
 
 pub async fn reset() {
     *TRANSIT_DATA_STORE.lock().await = None;
+}
+
+/// No new data in a while, e.g. the gateway stopped sending it with the light off.
+pub async fn is_stale() -> bool {
+    TRANSIT_DATA_STORE
+        .lock()
+        .await
+        .as_ref()
+        .is_some_and(|store| store.state.is_data_stale)
+}
+
+pub async fn wait_stale_changed() {
+    STALE_CHANGED.wait().await;
 }
 
 pub async fn is_set() -> bool {
@@ -248,7 +271,7 @@ pub async fn get_mut<'a>() -> MutexGuard<'a, CriticalSectionRawMutex, Option<Tra
 pub async fn on_config_updated() {
     let mut store = TRANSIT_DATA_STORE.lock().await;
     if let Some(store) = store.as_mut() {
-        store.stats.telemetry_pending = true;
+        store.state.painter_telemetry_pending = true;
         store.state.rendered_state.disruptions_render_pending = true;
         store.state.rendered_state.config_last_changed_at_instant_ms =
             Instant::now().as_millis() as u32;

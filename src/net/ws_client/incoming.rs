@@ -43,7 +43,7 @@ pub async fn handle_message(payload: Payload, payload_len: usize) {
         Payload::Status(status) => on_status(status).await,
         Payload::Config(config) => on_config(config).await,
         Payload::Command(command) => on_command(command).await,
-        Payload::Echo(echo) => send_echo(echo),
+        Payload::Echo(echo) => send_echo(echo).await,
         Payload::TransitData(data) => on_transit_data(data, payload_len).await,
         Payload::DeviceUpdate(update) => on_device_update(update).await,
         _ => trace::err!("WS: Unhandled server message payload"),
@@ -77,6 +77,7 @@ async fn on_server_info(server_info: ServerInfo) {
     }
     send_info();
     send_config();
+    send_telemetry();
     leds::set_status_led_from_session().await;
 }
 
