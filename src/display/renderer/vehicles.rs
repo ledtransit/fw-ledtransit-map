@@ -14,11 +14,9 @@ use super::{
 use crate::{
     config::CONFIG,
     display::path_find::{PathFindError, PathFinder},
-    net::ws_client::{
-        client_proto::{
-            ColorMode, DeviceConfig, Line, MovementSegment, RealtimeFilter, Stop, VehicleFilter,
-            VehicleMovement, ViaStop,
-        },
+    net::ws_client::client_proto::{
+        ColorMode, DeviceConfig, Line, MovementSegment, RealtimeFilter, Stop, VehicleFilter,
+        VehicleMovement, ViaStop,
     },
     profiling,
     store::{app_settings, transit_data},

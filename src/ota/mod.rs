@@ -43,8 +43,9 @@ enum OtaEvent {
 }
 
 // The download's TLS session needs 33 KB while downloading and 42 KB at its peak
-// during the handshake (measured), plus margin for fragmentation
-const MIN_FREE_HEAP_FOR_DOWNLOAD: usize = 48 * 1024;
+// during the handshake (measured), plus margin for fragmentation, and the TCP
+// buffers
+const MIN_FREE_HEAP_FOR_DOWNLOAD: usize = 48 * 1024 + download::TCP_BUFFERS_HEAP_SIZE;
 
 #[derive(defmt::Format, Debug)]
 pub enum OtaError {
@@ -59,6 +60,7 @@ pub enum OtaError {
     FlashReadError(partitions::Error),
     HashMismatchError,
     SizeMismatchError,
+    OutOfMemoryError,
     SignatureMalformedError,
     SignatureVerificationError,
 }

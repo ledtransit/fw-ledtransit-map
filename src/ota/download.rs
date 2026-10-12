@@ -1,5 +1,6 @@
 // Download of an update image over HTTPS into the inactive bank
-use core::{ffi::CStr, net::SocketAddr, ops::DerefMut};
+use alloc::boxed::Box;
+use core::{alloc::Layout, ffi::CStr, net::SocketAddr, ops::DerefMut};
 
 use defmt::{debug, error, info, warn};
 use edge_http::{
@@ -12,6 +13,7 @@ use embassy_futures::yield_now;
 use embassy_net::{IpAddress, Stack, dns};
 use embassy_time::{Duration, Instant, with_timeout};
 use embedded_io_async::Read;
+use embedded_storage::nor_flash::NorFlash;
 use esp_bootloader_esp_idf::{
     ota_updater::OtaUpdater,
     partitions::{self, FlashRegion, PARTITION_TABLE_MAX_LEN},
@@ -34,9 +36,16 @@ use crate::{
 
 pub(super) const OTA_PARTITION_SIZE: usize = 0x14F000; // partitions.csv factory/ota0/ota1
 const OTA_CHUNK_SIZE: usize = 4 * 1024; // Must be multiple of flash sector size (4KB) for efficient writes
+// Erased ahead of the download, a block at a time: much faster than by sector
+const ERASE_BLOCK_SIZE: usize = 64 * 1024;
 
-const TCP_RX_SIZE: usize = 4 * 1024;
+// A full TLS record (16 KB) in flight: the download streams instead of
+// waiting a round trip for each few KB, also while a chunk is written to flash
+const TCP_RX_SIZE: usize = 16 * 1024;
 const TCP_TX_SIZE: usize = 512;
+type OtaTcpBuffers = TcpBuffers<1, TCP_TX_SIZE, TCP_RX_SIZE>;
+// On the heap, only while downloading
+pub(super) const TCP_BUFFERS_HEAP_SIZE: usize = size_of::<OtaTcpBuffers>();
 const HTTP_MAX_NUM_HEADERS: usize = 32;
 const HTTP_BUFFER_SIZE: usize = 512;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -66,8 +75,8 @@ pub(super) async fn download_to_flash(
     let socket_addr = SocketAddr::new(ip_addr.into(), 443);
     debug!("Resolved Ota IP to {}, path {}", ip_addr, path);
 
-    let tcp_bufs = TcpBuffers::<1, TCP_TX_SIZE, TCP_RX_SIZE>::new();
-    let tcp = Tcp::new(stack, &tcp_bufs);
+    let tcp_bufs = new_tcp_buffers().ok_or(OtaError::OutOfMemoryError)?;
+    let tcp = Tcp::new(stack, &*tcp_bufs);
     let host_zstr = heapless::format!(64; "{}\0", host).map_err(|_| OtaError::UrlError)?;
     let server_name =
         CStr::from_bytes_with_nul(host_zstr.as_bytes()).map_err(|_| OtaError::UrlError)?;
@@ -109,6 +118,9 @@ async fn write_and_verify(
     let (mut partition, _) = ota.next_partition().unwrap();
 
     let start_instant = Instant::now();
+    erase_image_area(&mut partition, image_size)
+        .await
+        .map_err(OtaError::FlashWriteError)?;
     write_image_to_flash(&mut conn, &mut partition, image_size, start_instant).await?;
     app_settings::session::update_settings(|set| {
         set.update_progress_percent = 100;
@@ -134,6 +146,17 @@ async fn write_and_verify(
         (Instant::now() - start_instant).as_secs()
     );
     Ok(())
+}
+
+// Allocated zeroed, not moved onto the heap from the stack: too large for it
+fn new_tcp_buffers() -> Option<Box<OtaTcpBuffers>> {
+    let layout = Layout::new::<OtaTcpBuffers>();
+    // SAFETY: Allocated with the type's layout, and zeroed is a valid empty
+    // pool (no buffer in use, the buffers uninitialized)
+    unsafe {
+        let buffers = alloc::alloc::alloc_zeroed(layout).cast::<OtaTcpBuffers>();
+        (!buffers.is_null()).then(|| Box::from_raw(buffers))
+    }
 }
 
 async fn resolve(stack: Stack<'_>, host: &str) -> Result<IpAddress, OtaError> {
@@ -219,15 +242,16 @@ async fn write_image_to_flash(
     while bytes_written < image_size {
         let read_size = core::cmp::min(OTA_CHUNK_SIZE, image_size - bytes_written);
         // Zeroed for each chunk: the last one is written in full
-        let mut chunk = [0u8; OTA_CHUNK_SIZE];
+        let mut chunk = Chunk([0u8; OTA_CHUNK_SIZE]);
+        let chunk = &mut chunk.0;
         with_timeout(NETWORK_TIMEOUT, conn.read_exact(&mut chunk[..read_size]))
             .await
             .map_err(OtaError::Timeout)?
             .map_err(OtaError::HttpReadError)?;
-        write_chunk(partition, bytes_written, &chunk).map_err(OtaError::FlashWriteError)?;
+        write_chunk(partition, bytes_written, chunk).map_err(OtaError::FlashWriteError)?;
         bytes_written += read_size;
-        // Writing a sector blocks everything for tens of ms, and the next chunk
-        // is often already received: let the other tasks (e.g. the LEDs) run
+        // Writing a chunk blocks everything for a few ms, and the next chunk is
+        // often already received: let the other tasks (e.g. the LEDs) run
         yield_now().await;
 
         let elapsed_secs = (Instant::now() - start_instant).as_secs();
@@ -250,6 +274,32 @@ async fn write_image_to_flash(
     Ok(())
 }
 
+// Word-aligned: written to flash directly, not copied to an aligned buffer first
+#[repr(align(4))]
+struct Chunk([u8; OTA_CHUNK_SIZE]);
+
+// The image's sectors, erased before the download: the chunks are then only
+// written, not each read, erased and written back (with the CPU blocked)
+async fn erase_image_area(
+    partition: &mut FlashStorageRegion<'_>,
+    image_size: usize,
+) -> Result<(), partitions::Error> {
+    let erase_start = Instant::now();
+    let erase_end = image_size.next_multiple_of(OTA_CHUNK_SIZE);
+    for from in (0..erase_end).step_by(ERASE_BLOCK_SIZE) {
+        let to = (from + ERASE_BLOCK_SIZE).min(erase_end);
+        partition.erase(from as u32, to as u32)?;
+        // Each block blocks everything for a while: let the other tasks run
+        yield_now().await;
+    }
+    info!(
+        "OTA: Erased {} bytes in {} ms",
+        erase_end,
+        (Instant::now() - erase_start).as_millis()
+    );
+    Ok(())
+}
+
 fn write_chunk(
     partition: &mut FlashStorageRegion<'_>,
     byte_offset: usize,
@@ -269,7 +319,8 @@ fn write_chunk(
         byte_offset,
         data.len()
     );
-    partition.write(byte_offset as u32, data)
+    // Erased before (see erase_image_area)
+    partition.as_nor_flash()?.write(byte_offset as u32, data)
 }
 
 // Blocking, but fast with the SHA accelerator. Without yielding: the HMAC

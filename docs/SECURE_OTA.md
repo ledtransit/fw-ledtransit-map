@@ -99,7 +99,8 @@ SHA-256 of this message:
 
 - The signed size must fit the app partition before the download starts, and
   the server's `Content-Length` must equal it.
-- The image is written to the inactive bank in 4 KiB chunks.
+- The image's area of the inactive bank is erased first (in 64 KiB blocks),
+  then the image is written to it in 4 KiB chunks.
 - After the download, the firmware **reads the image back from flash** and
   computes its SHA-256 with the chip's hardware accelerator. It must equal the
   signed hash. This catches a swapped image, transfer errors and faulty flash
