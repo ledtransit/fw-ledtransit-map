@@ -121,9 +121,9 @@ The firmware is flashed to the factory partition. If the device currently boots 
 
 Your own builds work like the official firmware, including the connection to the LEDTransit server: the device authenticates with keys stored in its eFuses, which flashing doesn't touch. Over the air, the device only installs firmware signed by LEDTransit ([see Secure Over-the-Air Updates](docs/SECURE_OTA.md)).
 
+After flashing, `run` shows the device's log output (over RTT with `probe-rs`). Stop it with Ctrl-C: the firmware keeps running. To see the log again later without reflashing, use `cargo xtask monitor`.
+
 > [!NOTE]
-> When the log output of the device is monitored using the `probe-rs` tool invoked by `cargo xtask monitor` or `cargo xtask run`, the LEDs will flicker due to timing issues. This is expected behavior and can be resolved by detaching the RTT logger with Ctrl-C after the firmware has booted and the log output is no longer needed.
->
 > When halting the CPU in a debugger (e.g. at a breakpoint), the hardware watchdog resets the device after 30 seconds.
 
 > [!WARNING]
@@ -160,6 +160,22 @@ All tasks run through `cargo xtask` ([xtask/](xtask/)):
 | `cargo xtask release <product> [--install] [--staging]` | Build a signed over-the-air release into `target/ota`, from a clean commit tagged with the package version (e.g. `1.1.1`). `--staging` allows any commit, with a warning, to test a release before tagging it. Requires LEDTransit's private signing key |
 | `cargo xtask factory <product>` | Build and install the factory firmware, from a clean commit tagged with the package version |
 
+## Buttons
+
+The three buttons on the back of the map (up, middle with the circle icon, down):
+
+| Press | Up | Middle | Down |
+| --- | --- | --- | --- |
+| Short | Brightness up | Light on/off | Brightness down |
+| Long (2 s) | Switch color mode (original colors / delay heatmap) | Restart the WiFi setup (forgets the WiFi network) | Install an available firmware update |
+
+| Hold together (2 s) | Action |
+| --- | --- |
+| Up and down | Turn remote control back on (the app can only turn it off) |
+| All three | Start or stop the LED test mode |
+
+Commands from the app that reset the map's setup (factory reset, restarting the WiFi setup) or turn remote control off only run once confirmed at the map: the status LED lights up white, and a short press on any button within 30 seconds confirms the command.
+
 ## Recovery
 
 ### Bootloader mode
@@ -173,7 +189,7 @@ After flashing, detach and re-attach the USB cable without holding the button to
 Holding the down button for 5 seconds while the device starts (power-on or any reboot) makes the bootloader boot the factory firmware and erase the settings, so the device starts in setup mode.
 This works even when the installed application firmware doesn't (e.g. it crashes or hangs), as it's done by the bootloader (`CONFIG_BOOTLOADER_FACTORY_RESET` in `bootloader/sdkconfig.defaults`, built with `cargo xtask bootloader`).
 
-In the running firmware, holding the up and down buttons together for 2 seconds also performs a factory reset.
+A factory reset can also be started from the app, confirmed with a button press on the map ([see Buttons](#buttons)).
 
 ## Supported Products
 
@@ -206,19 +222,37 @@ In the running firmware, holding the up and down buttons together for 2 seconds 
 ├── src                 : Firmware source code (Rust)
 │   ├── display         : LEDs, animations, and drawing the rendered state
 │   │   └── renderer    : Where vehicles and disruptions show on the map
-│   ├── net             : WiFi
+│   ├── net             : WiFi, network traffic counters
 │   │   ├── provisioning : Setup network: DHCP server and setup page
-│   │   └── ws_client   : Authenticated connection to the LEDTransit server
+│   │   └── ws_client   : Authenticated connection to the LEDTransit server, telemetry
 │   ├── ota             : Secure over-the-air updates
-│   └── store           : Settings and transit data
-│       ├── app_settings : Settings in flash and RAM, device info
+│   └── store           : Settings, transit data, boot counter
+│       ├── app_settings : Settings in flash and RAM, device info and install records
 │       └── transit_data : Transit data from the server, mapped to the map's locations
 ├── xtask               : Build and utility tasks (Rust)
 ├── build.rs            : Product selection and protobuf code generation
 └── partitions.csv      : Flash partition table
 ```
 
-The modules directly in `src` cover the entry point (`main.rs`), product configuration, buttons and their actions, the day-night timer and sunlight brightness, device authentication with the eFuse keys, error reporting, the watchdog, and the production serial interface.
+The modules directly in `src` cover the entry point (`main.rs`), product configuration, buttons and their actions, the day-night timer and sunlight brightness, time keeping, device authentication with the eFuse keys, error reporting, boot profiling, device counters for the telemetry, the chip temperature sensor, the watchdog, and the production serial interface.
+
+## Flash layout
+
+The 4 MB flash ([partitions.csv](partitions.csv)), as the bootloader and the firmware use it:
+
+| Partition | Offset | Size | Contents |
+| --- | --- | --- | --- |
+| (bootloader) | `0x0` | | ESP-IDF bootloader ([assets/boot_image](assets/boot_image)) |
+| (partition table) | `0x8000` | | This table |
+| `nvs` | `0x9000` | 16 KB | Boot counter (not ESP-IDF NVS: nothing else uses the partition) |
+| `otadata` | `0xD000` | 8 KB | Which app partition boots, and the state of a new update |
+| `phy_init` | `0xF000` | 4 KB | Unused |
+| `factory` | `0x10000` | 1.3 MB | Firmware flashed over USB, booted after a factory reset |
+| `ota_0`, `ota_1` | `0x160000`, `0x2B0000` | 1.3 MB each | Firmware installed over the air, alternating |
+| `settings` | `0x2AF000` | 4 KB | Settings: WiFi credentials, configuration (erased by a factory reset) |
+| `info` | `0x3FF000` | 4 KB | Device info read by `cargo xtask detect`, and how the firmware in each app partition was installed |
+
+The partition table can't change over the air: devices in the field keep the one they were flashed with.
 
 ## Contributing
 
