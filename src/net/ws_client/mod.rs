@@ -29,9 +29,7 @@ use embassy_net::{Stack, dns};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
 };
-use embassy_time::{Duration, TimeoutError, Timer, with_timeout};
-#[cfg(ssl_enabled)]
-use embedded_io_async::ErrorKind;
+use embassy_time::{Duration, Instant, TimeoutError, Timer, with_timeout};
 use embedded_io_async::{Read, Write};
 use envparse::parse_env;
 use esp_hal::rng::Rng;
@@ -41,7 +39,10 @@ use smoltcp::wire::DnsQueryType;
 
 use crate::{
     display::leds::{self, LedPixels, LedStatus},
-    net::wifi_net::{self, SharedWifiController},
+    net::{
+        stats::{self, CountingTcp},
+        wifi_net::{self, SharedWifiController},
+    },
     ota,
     profiling::{self, TimedTcp},
     store::{
@@ -81,6 +82,9 @@ const GATEWAY_PORT: u16 = parse_env!("GATEWAY_PORT" as u16 else 443);
 const SSL_ENABLED: bool = parse_env!("SSL_ENABLED" as bool else true);
 
 const RECONNECT_DELAY: Duration = Duration::from_secs(3);
+// Connection failures are expected for a while, e.g. while the gateway
+// restarts: only reported once this many attempts in a row failed (about 30 s)
+const CONNECT_FAILURES_REPORTED_AFTER: u32 = 10;
 // Transit data arrives every 30 s
 const FRAME_HEADER_TIMEOUT: Duration = Duration::from_secs(45);
 const FRAME_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(10);
@@ -99,9 +103,10 @@ static WS_CLIENT_QUIT_SIGNAL: Signal<CriticalSectionRawMutex, Result<(), WsClien
 // way around): for a gateway that refuses TLS 1.2 (see wifi_net::tls_session_config)
 static ALLOW_TLS13: AtomicBool = AtomicBool::new(false);
 
+type GatewayTcp<'a> = CountingTcp<Tcp<'a>>;
 type HttpsConnection<'a> =
-    client::Connection<'a, ResumingTls<'a, TimedTcp<Tcp<'a>>>, HTTP_MAX_NUM_HEADERS>;
-type HttpConnection<'a> = client::Connection<'a, Tcp<'a>, HTTP_MAX_NUM_HEADERS>;
+    client::Connection<'a, ResumingTls<'a, TimedTcp<GatewayTcp<'a>>>, HTTP_MAX_NUM_HEADERS>;
+type HttpConnection<'a> = client::Connection<'a, GatewayTcp<'a>, HTTP_MAX_NUM_HEADERS>;
 
 type Connection<'a> = CondType<SSL_ENABLED, HttpsConnection<'a>, HttpConnection<'a>>;
 type SocketError = CondType<SSL_ENABLED, SessionError, TcpError>;
@@ -191,6 +196,8 @@ async fn ws_client_task(
 ) {
     // The last connection's TLS session, to resume
     let mut saved_session = None;
+    // Attempts in a row that didn't connect
+    let mut failed_attempts: u32 = 0;
     loop {
         sta_stack.wait_link_up().await;
         sta_stack.wait_config_up().await;
@@ -215,15 +222,25 @@ async fn ws_client_task(
             LedStatus::ConnectingServer
         });
 
+        let connections = stats::GATEWAY_CONNECTIONS.get();
         let result = run(sta_stack, controller, tls, ca_cert, &mut saved_session).await;
-        if on_connection_ended(result, sta_stack).await {
+        failed_attempts = if stats::GATEWAY_CONNECTIONS.get() == connections {
+            failed_attempts.saturating_add(1)
+        } else {
+            0
+        };
+        if on_connection_ended(result, sta_stack, failed_attempts).await {
             Timer::after(RECONNECT_DELAY).await;
         }
     }
 }
 
 /// Acts on how the connection ended, and whether to wait before reconnecting.
-async fn on_connection_ended(result: Result<(), WsClientError>, sta_stack: Stack<'static>) -> bool {
+async fn on_connection_ended(
+    result: Result<(), WsClientError>,
+    sta_stack: Stack<'static>,
+    failed_attempts: u32,
+) -> bool {
     let error = match result {
         Ok(()) => {
             info!("WebSocket task ended normally");
@@ -266,17 +283,57 @@ async fn on_connection_ended(result: Result<(), WsClientError>, sta_stack: Stack
             info!("Reconnecting to server as requested by WS user");
             return false;
         }
-        // Connection lost
-        WsClientError::WsError(WsError::Invalid) | WsClientError::Timeout(TimeoutError) => {}
-        // Only a TLS session error with TLS (builds without it, e.g. for a
-        // local gateway, would not compile)
-        #[cfg(ssl_enabled)]
-        WsClientError::WsError(WsError::Io(SessionError::Io(ErrorKind::Other))) => {}
+        // Connection lost, or couldn't connect: reported once it keeps failing
+        error if is_connection_failure(&error) => {
+            info!(
+                "Gateway connection failed ({} attempts in a row): {:?}",
+                failed_attempts, error
+            );
+            if failed_attempts == CONNECT_FAILURES_REPORTED_AFTER {
+                trace::err!(
+                    "Gateway unreachable, {} connection attempts failed: {:?}",
+                    failed_attempts,
+                    error
+                );
+            }
+            if failed_attempts >= CONNECT_FAILURES_REPORTED_AFTER {
+                leds::set_status(LedStatus::ServerError);
+            }
+        }
         error => {
             trace::err!("WebSocket connection error: {:?}", error);
             leds::set_status(LedStatus::ServerError);
         }
     }
+    true
+}
+
+// Failed in the network, or the gateway isn't (fully) up: the connection
+// refused, reset, closed or timing out, and the gateway refusing requests
+// (e.g. its load balancer without a backend)
+fn is_connection_failure(error: &WsClientError) -> bool {
+    match error {
+        WsClientError::DnsError(_)
+        | WsClientError::Timeout(TimeoutError)
+        | WsClientError::ServerRefused
+        | WsClientError::WsError(WsError::Invalid)
+        | WsClientError::HttpError(HttpError::ConnectionClosed | HttpError::IncompleteHeaders) => {
+            true
+        }
+        WsClientError::HttpError(HttpError::Io(error))
+        | WsClientError::WsError(WsError::Io(error)) => is_network_error(error),
+        _ => false,
+    }
+}
+
+// With TLS, not failed in TLS itself (handshake, alert, certificate)
+#[cfg(ssl_enabled)]
+fn is_network_error(error: &SocketError) -> bool {
+    matches!(error, SessionError::Io(_))
+}
+
+#[cfg(not(ssl_enabled))]
+fn is_network_error(_: &SocketError) -> bool {
     true
 }
 
@@ -312,7 +369,10 @@ async fn run(
     debug!("Resolved gateway to {} (SSL={})", socket_addr, SSL_ENABLED);
 
     let tcp_bufs = TcpBuffers::<TCP_BUF_POOL_SIZE, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>::new();
-    let tcp = TimedTcp(Tcp::new(sta_stack, &tcp_bufs));
+    let tcp = TimedTcp(CountingTcp::new(
+        Tcp::new(sta_stack, &tcp_bufs),
+        &stats::GATEWAY_TRAFFIC,
+    ));
     let host_zstr = format!("{}\0", GATEWAY_HOST);
     let server_name = CStr::from_bytes_with_nul(host_zstr.as_bytes()).unwrap();
     let allow_tls13 = ALLOW_TLS13.load(Ordering::Relaxed);
@@ -352,6 +412,7 @@ async fn run(
     }
     established?;
     profiling::once!(gateway_ws_established);
+    stats::on_gateway_connected();
     info!("WebSocket connection established");
 
     // Before the first transit data since boot: fade out what's shown
@@ -393,6 +454,7 @@ async fn run(
         Either4::Third(never) => match never {},
     };
     info!("WebSocket connection closed, shutting down ({:?})", result);
+    stats::on_gateway_disconnected();
     // A command can't be confirmed any more once the connection it came over
     // ended: it would quit a later connection
     confirmation::cancel().await;
@@ -459,23 +521,33 @@ where
             .map_err(WsClientError::Timeout)?
             .map_err(WsClientError::WsError)?;
         let header_received = profiling::now();
+        let header_received_at = Instant::now();
         let mut reader = FrameReader::new(&mut *rx, &header, buf);
 
         match header.frame_type {
             FrameType::Binary(_) => {
                 // Handled once received: only receiving it has the timeout
                 let payload_len = reader.remaining();
-                let received = with_timeout(FRAME_PAYLOAD_TIMEOUT, receive_binary(&mut reader))
-                    .await
-                    .map_err(WsClientError::Timeout)??;
-                match received {
+                let mut is_transit_data = false;
+                let received = with_timeout(
+                    FRAME_PAYLOAD_TIMEOUT,
+                    receive_binary(&mut reader, &mut is_transit_data),
+                )
+                .await
+                .map_err(WsClientError::Timeout)
+                .and_then(|result| result);
+                if received.is_err() && is_transit_data {
+                    stats::TRANSIT_DATA_ERRORS.inc();
+                }
+                let received_in = header_received_at.elapsed();
+                match received? {
                     Received::Message(message) => {
-                        incoming::handle_message(message, payload_len).await
+                        incoming::handle_message(message, payload_len, received_in).await
                     }
                     Received::TransitData(data) => {
                         profiling::once!(first_transit_data_header_received, header_received);
                         profiling::once!(first_transit_data_payload_received);
-                        incoming::on_transit_data(data, payload_len).await
+                        incoming::on_transit_data(data, payload_len, received_in).await
                     }
                     Received::Ignored => {}
                 }
@@ -517,8 +589,12 @@ enum Received {
 }
 
 // Transit data decoded while it's received, any other message once it's
-// received whole (into the buffer)
-async fn receive_binary<R>(reader: &mut FrameReader<'_, R>) -> Result<Received, WsClientError>
+// received whole (into the buffer). Tells if it's transit data as soon as
+// known, also if receiving it then fails
+async fn receive_binary<R>(
+    reader: &mut FrameReader<'_, R>,
+    is_transit_data: &mut bool,
+) -> Result<Received, WsClientError>
 where
     R: Read<Error = SocketError>,
 {
@@ -528,6 +604,7 @@ where
         let payload = reader.take(payload_len).await?;
         return decode_message(payload).map(Received::Message);
     }
+    *is_transit_data = true;
 
     if !prepare_for_transit_data().await {
         reader.skip(payload_len).await?;

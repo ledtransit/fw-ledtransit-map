@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
     display::leds::{self, LedPixels},
+    net::stats,
     ota, profiling,
     store::{
         app_settings::{self, persist::PersistSettings},
@@ -22,7 +23,7 @@ use crate::{
 
 const AUTO_UPDATE_DELAY: Duration = Duration::from_secs(5 * 60);
 
-pub async fn handle_message(payload: Payload, payload_len: usize) {
+pub async fn handle_message(payload: Payload, payload_len: usize, received_in: Duration) {
     // With remote control off, the server can't change the map's state. Only
     // checked for those messages: reading the settings copies the config
     let is_remote_control = matches!(
@@ -47,8 +48,11 @@ pub async fn handle_message(payload: Payload, payload_len: usize) {
         // Only if it fit into the receive buffer: usually decoded while it's
         // received (see transit_stream)
         Payload::TransitData(data) => match TransitData::try_from(data) {
-            Ok(data) => on_transit_data(data, payload_len).await,
-            Err(e) => trace::err!("WS: Transit data too large: {:?}", e),
+            Ok(data) => on_transit_data(data, payload_len, received_in).await,
+            Err(e) => {
+                stats::TRANSIT_DATA_ERRORS.inc();
+                trace::err!("WS: Transit data too large: {:?}", e)
+            }
         },
         Payload::DeviceUpdate(update) => on_device_update(update).await,
         _ => trace::err!("WS: Unhandled server message payload"),
@@ -219,18 +223,21 @@ pub(super) async fn on_command_confirmed(command: DeviceCommand) {
     }
 }
 
-pub(super) async fn on_transit_data(data: TransitData, payload_len: usize) {
+pub(super) async fn on_transit_data(data: TransitData, payload_len: usize, received_in: Duration) {
     profiling::once!(first_transit_data_decoded);
     info!(
-        "WS: Received transit data update: {} lines, {} stops, {} vehicles, {} disruptions ({} bytes, {} bytes in memory)",
+        "WS: Received transit data update: {} lines, {} stops, {} vehicles, {} disruptions ({} bytes in {} ms, {} bytes in memory)",
         data.lines.len(),
         data.stops.len(),
         data.vehicle_movements.len(),
         data.disruptions.len(),
         payload_len,
+        received_in.as_millis(),
         data.heap_size()
     );
-    transit_data::on_data(data, payload_len).await;
+    stats::TRANSIT_DATA_COUNT.inc();
+    stats::TRANSIT_DATA_BYTES.add(payload_len as u64);
+    transit_data::on_data(data, payload_len, received_in).await;
     profiling::once!(first_line_configs_updated);
 
     // Received, decoded and processed transit data: the boot check passed

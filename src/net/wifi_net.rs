@@ -24,7 +24,7 @@ use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion
 use crate::{
     display::leds::{self, LedPixels, LedStatus},
     mk_static,
-    net::{provisioning, ws_client},
+    net::{provisioning, stats, ws_client},
     ota, profiling,
     store::{
         SharedFlashStorage,
@@ -313,6 +313,7 @@ async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
         Ok(info) => {
             info!("WiFi connected successfully (channel {})", info.channel);
             profiling::once!(wifi_connected);
+            stats::WIFI_CONNECTIONS.inc();
             PROVISIONING.store(false, Ordering::Relaxed);
             true
         }

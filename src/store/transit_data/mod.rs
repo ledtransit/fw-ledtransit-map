@@ -8,7 +8,7 @@ use embassy_sync::{
     mutex::{Mutex, MutexGuard},
     signal::Signal,
 };
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant};
 
 use crate::{
     display::renderer::{self, RenderedDisruption, RenderedVehicle, RendererOutput, RendererState},
@@ -44,7 +44,8 @@ pub struct TransitDataStats {
     pub received_at_timestamp: u32, // When data was received from server
     pub sourced_at_timestamp: u32,  // When data was sourced by server from feed
     pub simulated_until_timestamp: u32,
-    pub transit_data_downlink_bytes_per_second: u32,
+    pub size_bytes: u32,     // Encoded, as received
+    pub receive_millis: u32, // From its frame header to its payload received and decoded
     pub num_vehicles_available: u32,
     pub num_vehicles_visible: u32,
     pub num_vehicles_visible_real_time: u32,
@@ -54,18 +55,8 @@ pub struct TransitDataStats {
     pub feed_source: String,
 }
 
-pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: usize) {
+pub async fn on_data(transit_data: TransitData, size_bytes: usize, received_in: Duration) {
     let now_timestamp = time::get_unix_timestamp_seconds().await;
-    let prev_received_timestamp = get_stats().await.received_at_timestamp;
-    let transit_data_downlink_bytes_per_second = if prev_received_timestamp != 0 {
-        let time_diff_seconds = now_timestamp.saturating_sub(prev_received_timestamp);
-        (transit_data_proto_size_bytes as u32)
-            .checked_div(time_diff_seconds)
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
     let mut store = TRANSIT_DATA_STORE.lock().await;
     let prev = store.as_ref();
     let was_stale = prev.is_some_and(|s| s.state.is_data_stale);
@@ -84,7 +75,8 @@ pub async fn on_data(transit_data: TransitData, transit_data_proto_size_bytes: u
         received_at_timestamp: now_timestamp,
         sourced_at_timestamp: transit_data.sourced_at_unix_timestamp,
         simulated_until_timestamp: transit_data.simulated_until_unix_timestamp,
-        transit_data_downlink_bytes_per_second,
+        size_bytes: size_bytes as u32,
+        receive_millis: received_in.as_millis() as u32,
         feed_source: transit_data.feed_source.clone(),
         ..prev.map(|s| s.stats.clone()).unwrap_or_default()
     };

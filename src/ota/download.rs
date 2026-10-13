@@ -27,6 +27,7 @@ use smoltcp::wire::DnsQueryType;
 use super::OtaError;
 use crate::{
     net::{
+        stats::{self, CountingTcp},
         wifi_net,
         ws_client::{self, client_proto::DeviceUpdate},
     },
@@ -50,7 +51,8 @@ const HTTP_MAX_NUM_HEADERS: usize = 32;
 const HTTP_BUFFER_SIZE: usize = 512;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(10);
 
-type HttpsConnection<'a> = client::Connection<'a, TlsConnector<'a, Tcp<'a>>, HTTP_MAX_NUM_HEADERS>;
+type HttpsConnection<'a> =
+    client::Connection<'a, TlsConnector<'a, CountingTcp<Tcp<'a>>>, HTTP_MAX_NUM_HEADERS>;
 type FlashStorageRegion<'a> = FlashRegion<'a, 'static>;
 
 /// Downloads the image into the inactive bank and checks it against the
@@ -76,7 +78,7 @@ pub(super) async fn download_to_flash(
     debug!("Resolved Ota IP to {}, path {}", ip_addr, path);
 
     let tcp_bufs = new_tcp_buffers().ok_or(OtaError::OutOfMemoryError)?;
-    let tcp = Tcp::new(stack, &*tcp_bufs);
+    let tcp = CountingTcp::new(Tcp::new(stack, &*tcp_bufs), &stats::OTA_TRAFFIC);
     let host_zstr = heapless::format!(64; "{}\0", host).map_err(|_| OtaError::UrlError)?;
     let server_name =
         CStr::from_bytes_with_nul(host_zstr.as_bytes()).map_err(|_| OtaError::UrlError)?;

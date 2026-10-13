@@ -106,7 +106,6 @@ message DeviceTelemetry {
     required uint32 last_transit_data_received_unix_timestamp = 9;
     required uint32 last_transit_data_sourced_unix_timestamp = 10;
     required uint32 last_transit_data_simulated_until_unix_timestamp = 11;
-    required uint32 transit_data_downlink_bytes_per_second = 12;
     required uint32 num_disruptions_available = 13;
     required uint32 num_disruptions_visible = 14;
     required uint32 heap_size_bytes = 16;
@@ -118,6 +117,19 @@ message DeviceTelemetry {
     optional uint32 auto_update_scheduled_unix_timestamp = 23;
     optional uint32 command_confirmation_deadline_unix_timestamp = 24; // Until then, a button press on the map confirms status.command_awaiting_confirmation
     required float display_frames_per_second = 25; // Measured LED updates per second, averaged over the last frames (0 without updates)
+    // Counters since boot, only counting up (reset by a reboot, as uptime_seconds shows): rates are their differences between two telemetry messages
+    required uint64 gateway_rx_bytes_total = 26; // Gateway connections' TCP stream received (TLS, HTTP and WebSocket overhead included, TCP/IP headers not)
+    required uint64 gateway_tx_bytes_total = 27; // Gateway connections' TCP stream sent
+    required uint64 ota_rx_bytes_total = 28; // Firmware update downloads' TCP stream received
+    required uint64 transit_data_rx_bytes_total = 29; // Transit data messages received and stored (WebSocket payload)
+    required uint32 transit_data_rx_count_total = 30; // Transit data messages received and stored
+    required uint32 transit_data_errors_total = 31; // Transit data messages failed to receive (decode error, timeout, too large)
+    required uint32 gateway_connections_total = 32; // Gateway connections established
+    required uint32 wifi_connections_total = 33; // WiFi connections established
+    required uint32 gateway_connected_seconds = 34; // How long the current gateway connection is up
+    // The last transit data message (0 before the first): size / receive time is the effective downlink speed
+    required uint32 last_transit_data_size_bytes = 35;
+    required uint32 last_transit_data_receive_millis = 36; // From its frame header to its payload received and decoded
 }
 
 // [on-input] Commands from server to client (control, actions). Factory reset,

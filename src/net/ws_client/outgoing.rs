@@ -10,7 +10,7 @@ use super::client_proto::{
 use crate::{
     config::CONFIG,
     display::leds,
-    net::wifi_net::SharedWifiController,
+    net::{stats, wifi_net::SharedWifiController},
     profiling,
     store::{app_settings, transit_data},
     time, trace,
@@ -75,8 +75,6 @@ pub async fn telemetry(controller: &'static SharedWifiController) -> Vec<u8> {
         last_transit_data_sourced_unix_timestamp: transit_data_stats.sourced_at_timestamp,
         last_transit_data_simulated_until_unix_timestamp: transit_data_stats
             .simulated_until_timestamp,
-        transit_data_downlink_bytes_per_second: transit_data_stats
-            .transit_data_downlink_bytes_per_second,
         heap_size_bytes: heap_stats.size as u32,
         heap_max_used_bytes: heap_stats.max_usage as u32,
         heap_current_used_bytes: heap_stats.current_usage as u32,
@@ -88,6 +86,17 @@ pub async fn telemetry(controller: &'static SharedWifiController) -> Vec<u8> {
             .pending_confirmation
             .map(|pending| pending.deadline_unix_timestamp),
         display_frames_per_second: session_settings.display_frames_per_second,
+        gateway_rx_bytes_total: stats::GATEWAY_TRAFFIC.rx_bytes.get(),
+        gateway_tx_bytes_total: stats::GATEWAY_TRAFFIC.tx_bytes.get(),
+        ota_rx_bytes_total: stats::OTA_TRAFFIC.rx_bytes.get(),
+        transit_data_rx_bytes_total: stats::TRANSIT_DATA_BYTES.get(),
+        transit_data_rx_count_total: stats::TRANSIT_DATA_COUNT.get() as u32,
+        transit_data_errors_total: stats::TRANSIT_DATA_ERRORS.get() as u32,
+        gateway_connections_total: stats::GATEWAY_CONNECTIONS.get() as u32,
+        wifi_connections_total: stats::WIFI_CONNECTIONS.get() as u32,
+        gateway_connected_seconds: stats::gateway_connected_seconds(),
+        last_transit_data_size_bytes: transit_data_stats.size_bytes,
+        last_transit_data_receive_millis: transit_data_stats.receive_millis,
     }))
 }
 
