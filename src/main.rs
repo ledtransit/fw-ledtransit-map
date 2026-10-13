@@ -4,6 +4,9 @@
 // Main entry point. Initializes system, RTOS, peripherals and spawns all tasks.
 #![no_std]
 #![no_main]
+// The gateway connection's nested futures (HTTP over buffered TLS over TCP)
+// are deeper than the default limit to compute their layout
+#![recursion_limit = "256"]
 
 extern crate alloc;
 
@@ -12,31 +15,36 @@ extern crate serde;
 
 mod automation;
 mod buttons;
+mod chip_temperature;
 mod config;
+mod device_auth;
 mod display;
+mod factory_serial;
 mod net;
+mod ota;
+mod profiling;
+mod stats;
 mod store;
 mod time;
 mod trace;
 mod ui;
 mod util;
+mod watchdog;
 
-use crate::{
-    buttons::Button,
-    display::{
-        leds::{self, LedColor, LedPixels, LedStatus},
-        painter, renderer,
-    },
-    net::wifi_net,
-    store::{app_settings, ota, transit_data},
-};
 use config::CONFIG;
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
-use esp_hal::{
-    clock::CpuClock, interrupt::software::SoftwareInterruptControl, ram, timer::timg::TimerGroup,
+use esp_hal::{clock::CpuClock, ram, timer::timg::TimerGroup};
+
+use crate::{
+    buttons::Button,
+    display::{
+        leds::{self, LedPixels, LedStatus},
+        painter, renderer,
+    },
+    net::wifi_net,
+    store::{app_settings, transit_data},
 };
 
 // Place ESP-IDF app descriptor in flash section
@@ -44,32 +52,48 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    // Init product hardware configuration
+    profiling::once!(main_entered);
     config::init();
 
-    // Init system
     let hal_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(hal_config);
+    chip_temperature::init();
 
-    // Setup heap allocator
-    esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 66320); // max reclaimed dram2_seg from bootloader
-    esp_alloc::heap_allocator!(size: 136 * 1024);
+    // Reclaim RAM from bootloader, maximum value determined via:
+    // riscv-none-elf-readelf -SW target/riscv32imc-unknown-none-elf/release/fw-ledtransit-map | grep dram2_uninit
+    esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 0x10310);
+    esp_alloc::heap_allocator!(size: 124 * 1024);
 
     // Start RTOS
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let swi = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, swi.software_interrupt0);
+    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
+    profiling::once!(rtos_started);
+    profiling::spawn(spawner);
 
-    // Init flash storage
     let flash_store = store::init(peripherals.FLASH).await;
+    profiling::once!(settings_loaded);
+
+    // Device keys, for authenticating to the gateway (and the production
+    // self-test over USB serial)
+    device_auth::init(peripherals.HMAC).await;
+    profiling::once!(device_keys_checked);
+    factory_serial::spawn(spawner, peripherals.USB_DEVICE);
 
     // Spawn Embassy tasks taking peripheral ownership as needed
-    leds::spawn(spawner, peripherals.GPIO1.into(), peripherals.RMT);
+    leds::spawn(
+        spawner,
+        peripherals.FROM_CPU_INTR1,
+        peripherals.GPIO1.into(),
+        peripherals.SPI2,
+        peripherals.DMA_CH0,
+    );
     buttons::spawn(spawner, peripherals.GPIO3.into(), Button::Up);
     buttons::spawn(spawner, peripherals.GPIO9.into(), Button::Middle);
     buttons::spawn(spawner, peripherals.GPIO4.into(), Button::Down);
     renderer::spawn(spawner);
     painter::spawn(spawner);
+    watchdog::spawn(spawner, peripherals.RTC_TIMER);
+    profiling::once!(tasks_spawned);
     wifi_net::spawn(spawner, peripherals.WIFI, peripherals.SHA, flash_store).await;
     app_settings::spawn(spawner, flash_store);
 
@@ -81,8 +105,9 @@ async fn main(spawner: Spawner) -> ! {
         CONFIG.fw_version.major,
         CONFIG.fw_version.minor,
         CONFIG.fw_version.patch,
-        CONFIG.fw_version.beta.then_some("-beta").unwrap_or("")
+        if CONFIG.fw_version.beta { "-beta" } else { "" }
     );
+    profiling::once!(app_initialized);
 
     leds::set_status(LedStatus::Idle);
     trace::init_on_boot();
@@ -90,32 +115,30 @@ async fn main(spawner: Spawner) -> ! {
     // Start WiFi provisioning if needed, otherwise connect to WiFi AP
     let is_provisioned = app_settings::persist::get_settings()
         .await
-        .has_credentials_and_is_authenticated();
+        .has_credentials_and_is_claimed();
     if is_provisioned {
         info!("WiFi is provisioned, attempting to connect to AP");
         wifi_net::connect_ap();
+        profiling::once!(wifi_connect_requested);
     } else {
-        info!("No WiFi credentials or API token stored, entering provisioning mode");
+        info!("No WiFi credentials or not claimed, entering provisioning mode");
         wifi_net::start_provisioning().await;
     }
 
-    // Wait a bit for WiFi initialization to complete before sending timing-sensitive LED data
     leds::set_pixels(LedPixels::Off).await;
-    Timer::after(Duration::from_millis(2900)).await;
 
     // Play startup animation if not already received transit data in the meantime
     if !transit_data::is_set().await {
-        leds::set_pixels(LedPixels::StartupAnimation(LedColor::Amber.as_rgb8())).await;
+        leds::set_pixels(LedPixels::StartupAnimation).await;
         leds::wait_pixels_animation_complete().await;
         if !is_provisioned {
             leds::set_pixels(LedPixels::DemoMode).await;
         }
     }
 
-    // Initialize boot partition, mark OTA valid
+    // Read the boot partition state (a new image is kept once it passed the
+    // boot check, see ota::confirm_boot)
     ota::init_boot_partition();
 
-    // Handle buttons UI in main task forever
-    ui::handle_ui_forever().await;
-    unreachable!();
+    ui::handle_ui_forever().await
 }

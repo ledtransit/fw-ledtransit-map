@@ -19,8 +19,9 @@
   "errorConnectingToWifi": "Could not connect to the WiFi network. Please check your password and try again.",
   "deviceIdentificationTriggered": "Your map should now light up green! If not, check you are connected to the correct LEDTransit Wi-Fi network and start over.",
   "errorIdentifyingDevice": "Error triggering device identification. Please try again.",
-  "missingToken": "Missing setup token in URL. Please restart the setup process and use the provided link to navigate to this page.",
+  "missingToken": "Missing setup token. Please return to the LEDTransit app and tap Continue again.",
   "togglePasswordVisibility": "Toggle password visibility",
   "enterWifiName": "Enter WiFi name",
-  "enterWifiPassword": "Enter WiFi password"
+  "enterWifiPassword": "Enter WiFi password",
+  "continueInAppTab": "Your map is connected. The setup continues in the LEDTransit app, you can close this tab."
 }

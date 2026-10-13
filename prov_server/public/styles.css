@@ -9,9 +9,11 @@
   --button: #fff;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-background: oklch(0.92 0.05 21.79);
+  color-scheme: light;
 }
 
 .dark {
+  color-scheme: dark;
   --background: #0a0a0a;
   --secondary: #262626;
   --border: #ffffff1a;
@@ -85,10 +87,10 @@ main {
   justify-content: center;
   align-items: center;
   width: 100%;
-  height: min(100dvh, 800px);
+  height: min(100dvh, 1000px);
   padding: 16px;
   position: relative;
-  max-width: 48rem;
+  max-width: 64rem;
 }
 
 .card {
@@ -500,6 +502,11 @@ input {
   color: var(--foreground);
   font-size: 14px;
   outline: none;
+}
+
+/* Password shown as dots without being a password field (see setup-wifi) */
+input.masked {
+  -webkit-text-security: disc;
 }
 
 input::placeholder {

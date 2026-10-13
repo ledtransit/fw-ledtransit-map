@@ -14,6 +14,7 @@ message ClientMessage {
         DeviceErrors errors = 9; // Client -> Server [N]
         TransitData transit_data = 10; // Server -> Client [N]
         Echo echo = 11; // Server <-> Client [N]
+        DeviceProfiling profiling = 12; // Client -> Server [N]
     }
 }
 
@@ -34,6 +35,8 @@ message DeviceInfo {
     required bool is_beta_firmware = 4;
     required bool is_rolled_back_firmware = 5;
     required bool is_factory_firmware = 6;
+    required bytes build_id = 7; // SHA-256 of the running image (appended by espflash, esptool image-info's "Validation hash"), zeros if unknown
+    required InstallMethod install_method = 8; // How the running image got into its app slot
 }
 
 // [on-join/on-input] Device status valid for entire session, cached on server, reset on reboot
@@ -42,6 +45,8 @@ message DeviceStatus {
     required bool is_updating_firmware = 2;
     required bool has_update_failed = 3;
     required string wifi_ssid = 4;
+    optional DeviceCommand command_awaiting_confirmation = 5; // Client -> Server only: runs once a button on the map is pressed, see telemetry for the deadline
+    required bool is_remote_control_enabled = 6; // Client -> Server only (ignored by the client). When off, the client ignores status, config and commands from the server. Turned off with DEVICE_COMMAND_DISABLE_REMOTE_CONTROL, back on only by holding the Up and Down buttons on the map
 }
 
 // [on-join/on-input] Persistent device configuration, stored on device and in cloud (user preferences)
@@ -54,7 +59,7 @@ message DeviceConfig {
     required uint32 tertiary_color_rgb8 = 6;
     required int32 color_temperature_shift = 7;
     required DisruptionMode disruption_mode = 8;
-    required uint32 disruption_color_rgb8 = 9;
+    required uint32 disruption_primary_color_rgb8 = 9;
     required uint32 disruption_brightness_percent = 10;
     required uint32 animation_speed_percent = 11;
     required RenderMode render_mode = 12;
@@ -74,6 +79,8 @@ message DeviceConfig {
     optional Coordinates location_coord = 26;
     optional string location_name = 27;
     required DisruptionFilter disruption_filter = 28;
+    required uint32 disruption_secondary_color_rgb8 = 29;
+    required bool disruptions_enabled = 30;
 }
 
 // [on-join/1h?] New firmware update available notification from server
@@ -101,21 +108,43 @@ message DeviceTelemetry {
     required uint32 last_transit_data_received_unix_timestamp = 9;
     required uint32 last_transit_data_sourced_unix_timestamp = 10;
     required uint32 last_transit_data_simulated_until_unix_timestamp = 11;
-    required uint32 transit_data_downlink_bytes_per_second = 12;
     required uint32 num_disruptions_available = 13;
     required uint32 num_disruptions_visible = 14;
-    repeated AvailableVehicleLine available_vehicle_lines = 15;
     required uint32 heap_size_bytes = 16;
     required uint32 heap_max_used_bytes = 17;
     required uint32 heap_current_used_bytes = 18;
     required string feed_source = 19;
     required uint32 num_vehicles_visible_real_time = 20;
-    repeated AvailableDisruptedLine available_disrupted_lines = 21;
     required uint32 brightness_percent = 22;
     optional uint32 auto_update_scheduled_unix_timestamp = 23;
+    optional uint32 command_confirmation_deadline_unix_timestamp = 24; // Until then, a button press on the map confirms status.command_awaiting_confirmation
+    required float display_frames_per_second = 25; // Measured LED updates per second, averaged over the last frames (0 without updates)
+    // Counters since boot, only counting up (reset by a reboot, as uptime_seconds shows): rates are their differences between two telemetry messages
+    required uint64 gateway_rx_bytes_total = 26; // Gateway connections' TCP stream received (TLS, HTTP and WebSocket overhead included, TCP/IP headers not)
+    required uint64 gateway_tx_bytes_total = 27; // Gateway connections' TCP stream sent
+    required uint64 ota_rx_bytes_total = 28; // Firmware update downloads' TCP stream received
+    required uint64 transit_data_rx_bytes_total = 29; // Transit data messages received and stored (WebSocket payload)
+    required uint32 transit_data_rx_count_total = 30; // Transit data messages received and stored
+    required uint32 transit_data_errors_total = 31; // Transit data messages failed to receive (decode error, timeout, too large)
+    required uint32 gateway_connections_total = 32; // Gateway connections established
+    required uint32 wifi_connections_total = 33; // WiFi connections established
+    required uint32 gateway_connected_seconds = 34; // How long the current gateway connection is up
+    // The last transit data message (0 before the first): size / receive time is the effective downlink speed
+    required uint32 last_transit_data_size_bytes = 35;
+    required uint32 last_transit_data_receive_millis = 36; // From its frame header to its payload received and decoded
+    // Device health
+    required ResetReason reset_reason = 37; // Why the chip last started (this boot)
+    required uint32 boot_count_total = 38; // Boots ever (counted in flash, survives factory resets), this one included. 0 if it couldn't be counted
+    required uint32 settings_writes_total = 39; // Persistent settings written to flash since boot
+    required uint64 executor_stalled_micros_total = 40; // Since boot: how long the async executor couldn't run tasks (over 1 ms at a time), see ProfilingPoint
+    required uint32 wifi_last_disconnect_reason = 41; // Why the WiFi was last disconnected, or failed to connect, since boot (ESP-IDF wifi_err_reason_t, e.g. 200 beacon timeout, 201 no AP found, 202 auth fail), 0 without one
+    required uint32 button_presses_total = 42; // Presses of any button since boot
+    required float chip_temperature_celsius = 43; // Internal sensor, in the range the WiFi driver sets (-10..80 °C, ±1 °C), NaN in an unknown one
 }
 
-// [on-input] Commands from server to client (control, actions)
+// [on-input] Commands from server to client (control, actions). Factory reset,
+// reprovision and disabling remote control only run once confirmed with a
+// button press on the map
 enum DeviceCommand {
     DEVICE_COMMAND_REBOOT = 0;
     DEVICE_COMMAND_IDENTIFY = 1;
@@ -125,6 +154,70 @@ enum DeviceCommand {
     DEVICE_COMMAND_START_FIRMWARE_UPDATE = 5;
     DEVICE_COMMAND_TEST_LEDS = 6;
     DEVICE_COMMAND_RECONNECT = 7;
+    DEVICE_COMMAND_DISABLE_REMOTE_CONTROL = 8;
+}
+
+// [once] Boot profiling for development, from reset to the first transit data
+// painted (or its painting skipped, with the light off). Each point is the first
+// time it was reached since boot, unset if it wasn't (before profiling finished)
+message DeviceProfiling {
+    // Init
+    optional ProfilingPoint main_entered = 1; // After the bootloader
+    optional ProfilingPoint rtos_started = 2;
+    optional ProfilingPoint settings_loaded = 3;
+    optional ProfilingPoint device_keys_checked = 4;
+    optional ProfilingPoint tasks_spawned = 5;
+    optional ProfilingPoint wifi_radio_initialized = 6;
+    optional ProfilingPoint tls_initialized = 7; // CA bundle parsed
+    optional ProfilingPoint station_configured = 8;
+    optional ProfilingPoint app_initialized = 9;
+    optional ProfilingPoint wifi_connect_requested = 10;
+    // WiFi
+    optional ProfilingPoint wifi_connect_started = 11;
+    optional ProfilingPoint wifi_connected = 12; // Link up
+    optional ProfilingPoint ip_configured = 13; // DHCP done
+    // Gateway
+    optional ProfilingPoint gateway_connect_started = 14;
+    optional ProfilingPoint gateway_dns_resolved = 15;
+    optional ProfilingPoint gateway_tcp_connected = 16;
+    optional ProfilingPoint gateway_tls_client_hello_sent = 17;
+    optional ProfilingPoint gateway_tls_server_hello_received = 18; // Network and server
+    optional ProfilingPoint gateway_tls_certificate_checked = 19; // Certificate chain checked (TLS 1.2)
+    optional ProfilingPoint gateway_tls_server_flight_processed = 20; // Server key exchange signature checked (TLS 1.2)
+    optional ProfilingPoint gateway_tls_client_key_exchange_sent = 21; // Key exchange computed
+    optional ProfilingPoint gateway_tls_handshake_done = 22;
+    optional ProfilingPoint claim_challenge_received = 23; // Only the first connection after setup
+    optional ProfilingPoint claim_accepted = 24; // Only the first connection after setup
+    optional ProfilingPoint gateway_challenge_received = 25;
+    optional ProfilingPoint gateway_proof_computed = 26;
+    optional ProfilingPoint gateway_ws_established = 27;
+    optional ProfilingPoint first_status_sent = 28;
+    // First messages
+    optional ProfilingPoint first_server_info_received = 29;
+    optional ProfilingPoint first_config_received = 30;
+    optional ProfilingPoint first_transit_data_header_received = 31;
+    optional ProfilingPoint first_transit_data_payload_received = 32;
+    optional ProfilingPoint first_transit_data_cleared = 33; // Previous data freed
+    optional ProfilingPoint first_transit_data_decoded = 34;
+    optional ProfilingPoint first_transit_data_stored = 35;
+    optional ProfilingPoint first_line_configs_updated = 36;
+    optional ProfilingPoint boot_confirmed = 37; // OTA image marked valid
+    // Render and paint
+    optional ProfilingPoint painter_fade_out_started = 38;
+    optional ProfilingPoint painter_fade_out_done = 39;
+    optional ProfilingPoint first_transit_data_rendered = 40;
+    optional ProfilingPoint first_disruptions_rendered = 41;
+    optional ProfilingPoint first_transit_data_painted = 42;
+    optional ProfilingPoint first_transit_data_paint_skipped = 43; // Light off: nothing painted
+    // Attempts until profiling finished
+    required uint32 wifi_connect_attempts = 44;
+    required uint32 gateway_connect_attempts = 45;
+}
+
+message ProfilingPoint {
+    required uint64 micros_since_boot = 1;
+    required uint32 free_heap_bytes = 2;
+    required uint32 executor_stalled_micros = 3; // Since boot: how long the async executor couldn't run tasks (over 1 ms at a time), busy computing or preempted (e.g. by the WiFi driver)
 }
 
 // [on-error] Errors from client to server (error logs, panics)
@@ -132,7 +225,7 @@ message DeviceErrors {
     repeated DeviceError errors = 1;
 }
 
-// [on-join/30s] Live processed transit data from feed server, packed fields for efficient in-memory layout
+// [on-join/30s] Live processed transit data from feed server. IDs are indices into the lines and stops (16 bit)
 message TransitData {
     required uint32 sourced_at_unix_timestamp = 1;
     required uint32 simulated_until_unix_timestamp = 2;
@@ -151,21 +244,35 @@ message Echo {
 
 // --- TYPES ---
 
-message AvailableVehicleLine {
-    required string line_name = 1;
-    required uint32 vehicle_count = 2;
+// How the running image was installed
+enum InstallMethod {
+    INSTALL_METHOD_UNKNOWN = 0; // Was there when install tracking started (firmware from before it), until the production self-test passes
+    INSTALL_METHOD_FACTORY = 1; // Flashed at production (passed the self-test)
+    INSTALL_METHOD_USB = 2; // Flashed over USB after production
+    INSTALL_METHOD_OTA = 3; // Firmware update
 }
 
-message AvailableDisruptedLine {
-    required string line_name = 1;
-    required uint32 stop_count = 2;
-    required Coordinates from_coord = 3;
-    optional Coordinates to_coord = 4;
-    optional Coordinates direction_hint_to_coord = 5;
-    optional Coordinates direction_hint_from_coord = 6;
-    required bool bidirectional = 7;
-    required bool entire_line = 8;
-    required bool affects_all_lines = 9;
+// The chip's reset reasons (ESP32-C3 codes)
+enum ResetReason {
+    RESET_REASON_UNKNOWN = 0;
+    RESET_REASON_CHIP_POWER_ON = 1; // Also a brownout or super watchdog resetting the whole chip
+    RESET_REASON_CORE_SW = 3; // Software reset of the digital core (reboot, panic, firmware update)
+    RESET_REASON_CORE_DEEP_SLEEP = 5;
+    RESET_REASON_CORE_MWDT0 = 7; // Main watchdog 0
+    RESET_REASON_CORE_MWDT1 = 8; // Main watchdog 1
+    RESET_REASON_CORE_RTC_WDT = 9; // RTC watchdog, resetting the core (the firmware hung, see watchdog)
+    RESET_REASON_CPU0_MWDT0 = 11;
+    RESET_REASON_CPU0_SW = 12; // Software reset of the CPU
+    RESET_REASON_CPU0_RTC_WDT = 13;
+    RESET_REASON_SYS_BROWN_OUT = 15; // Supply voltage too low
+    RESET_REASON_SYS_RTC_WDT = 16; // RTC watchdog, resetting the system
+    RESET_REASON_CPU0_MWDT1 = 17;
+    RESET_REASON_SYS_SUPER_WDT = 18;
+    RESET_REASON_SYS_CLK_GLITCH = 19;
+    RESET_REASON_CORE_EFUSE_CRC = 20;
+    RESET_REASON_CORE_USB_UART = 21;
+    RESET_REASON_CORE_USB_JTAG = 22;
+    RESET_REASON_CORE_PWR_GLITCH = 23;
 }
 
 enum DeviceErrorType {
@@ -193,7 +300,6 @@ enum ColorMode {
 }
 
 enum DisruptionMode {
-    DISRUPTION_MODE_OFF = 0;
     DISRUPTION_MODE_SOLID = 1;
     DISRUPTION_MODE_PULSING = 2;
     DISRUPTION_MODE_RIPPLE = 3;
@@ -201,7 +307,9 @@ enum DisruptionMode {
 
 enum DisruptionFilter {
     DISRUPTION_FILTER_ALL = 0;
-    DISRUPTION_FILTER_SEVERE = 1;
+    DISRUPTION_FILTER_SEVERE = 1; // Only show disruptions that are SUSPENDED/MAJOR_DELAYS and without alternative
+    DISRUPTION_FILTER_NO_SERVICE_SEVERE = 2; // Only show disruptions that are SUSPENDED and without alternative
+    DISRUPTION_FILTER_NO_SERVICE_ALL = 3; // Only show disruptions that are SUSPENDED
 }
 
 enum DisruptionInterval {
@@ -255,8 +363,9 @@ message Line {
 }
 
 message Stop {
-    required int32 is_station_x_latitude_e7 = 1; // bool + i31
-    required int32 longitude_e7 = 2;
+    required sint32 latitude_e7 = 1;
+    required sint32 longitude_e7 = 2;
+    required bool is_station = 3; // Else a via stop, only shaping the track between stations
 }
 
 message Coordinates {
@@ -265,25 +374,45 @@ message Coordinates {
 }
 
 message VehicleMovement {
-    required uint32 line_id_x_trip_id = 1; // u16 + u16
-    repeated MovementSegment segments = 2;
+    required uint32 line_id = 1;
+    required uint32 trip_id = 2; // Stable unique ID
+    required sint32 start_offset_seconds = 3; // When the first segment starts, relative to sourced_at_unix_timestamp
+    repeated MovementSegment segments = 4; // In order, each starting when the previous one ends
 }
 
 message MovementSegment {
-    required uint32 from_stop_id_x_to_stop_id = 1; // u16 + u16
-    required uint32 move_seconds_x_wait_seconds = 2; // u16 + u16
-    required int32 delayed_seconds_x_average_speed_kmph = 3; // i16 + u16, delay i16::MAX -> no data
-    required uint32 canceled_x_start_offset_seconds_x_via_total_move_seconds = 4; // bool + u15 + u16
-    repeated ViaStop via_stops = 5;
+    required uint32 from_stop_id = 1;
+    required uint32 to_stop_id = 2;
+    repeated ViaStop via_stops = 3; // In order from from_stop_id, the last leg from the last via stop to to_stop_id
+    required uint32 move_seconds = 4; // Moving from from_stop_id to to_stop_id (all legs)
+    required uint32 wait_seconds = 5; // Then waiting at to_stop_id
+    optional sint32 delayed_seconds = 6; // Unset: no real-time data
+    required bool cancelled = 7;
+    required uint32 average_speed_kmph = 8;
 }
 
 message ViaStop {
-    required uint32 stop_id_x_move_seconds = 1; // u16 + u16
+    required uint32 stop_id = 1;
+    required uint32 move_seconds = 2; // Of the leg to this stop
 }
 
 message Disruption {
-    required uint32 line_id_x_disruption_id = 1; // u16 + u16
-    required uint32 from_stop_id_x_to_stop_id = 2; // u16 + u16, to_stop_id u16::MAX -> only from stop affected
-    required uint32 direction_hint_from_stop_id_x_to_stop_id = 3; // u16 + u16, direction_hint_to_stop_id u16::MAX -> all directions at from_stop_id affected, same for from_stop_id
-    required uint32 bidirectional_x_entire_line_x_affects_all_lines_x_stop_count = 4; // bool + bool + bool + u29
+    required uint32 line_id = 1;
+    required uint32 disruption_id = 2; // Stable unique ID
+    required uint32 from_stop_id = 3;
+    optional uint32 to_stop_id = 4; // If set, the disruption affects all stops connecting from_stop_id to to_stop_id, otherwise only from_stop_id
+    optional uint32 direction_hint_to_stop_id = 5; // If set, the disruption at from_stop_id only affects connections towards direction_hint_to_stop_id, otherwise all directions are affected
+    optional uint32 direction_hint_from_stop_id = 6; // If set, the disruption at from_stop_id only affects connections coming from direction_hint_from_stop_id, otherwise all directions are affected
+    required bool bidirectional = 7; // If true, the disruption affects both directions between from_stop_id and to_stop_id
+    required uint32 stop_count = 8; // Number of stops affected by the disruption
+    required bool entire_line = 9; // If true, the disruption affects all stops on the line
+    required bool affects_all_lines = 10; // If true, the disruption affects all lines that serve the affected stops (no alternative lines available)
+    required DisruptionType type = 11;
+    optional uint32 via_stop_id = 12; // If set, the disruption affects only connections that go through this stop, otherwise all connections are affected
+}
+
+enum DisruptionType {
+    SUSPENDED = 0; // The affected stops aren't served (part closure / suspended line)
+    MINOR_DELAYS = 1; // Several trips on the affected stops run late or are cancelled
+    MAJOR_DELAYS = 2; // Several trips on the affected stops run heavily late or are cancelled
 }

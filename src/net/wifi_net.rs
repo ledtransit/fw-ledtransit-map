@@ -1,4 +1,10 @@
-use core::{ffi::CStr, net::Ipv4Addr, str::FromStr};
+// WiFi: station to the user's network, and the map's own network in setup mode
+use core::{
+    ffi::CStr,
+    fmt::Write,
+    net::Ipv4Addr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
@@ -10,30 +16,33 @@ use esp_hal::{
     rng::{Rng, Trng},
 };
 use esp_radio::wifi::{
-    self, Config, ControllerConfig, Interface, WifiController, ap::AccessPointConfig,
+    AuthenticationMethodConfig, Config, ControllerConfig, Interface, Password, Ssid,
+    WifiController,
+    ap::AccessPointConfig,
+    event::{EventInfo, EventSubscriber},
     sta::StationConfig,
 };
-use mbedtls_rs::{Certificate, Tls, X509};
+use esp_wifi_sys::include::{esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA};
+use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion, X509};
 
 use crate::{
     display::leds::{self, LedPixels, LedStatus},
     mk_static,
-    net::{
-        dhcp_server, http_server,
-        ws_client::{self},
+    net::{provisioning, stats, ws_client},
+    ota, profiling,
+    store::{
+        SharedFlashStorage,
+        app_settings::{self, persist::PersistSettings},
+        transit_data,
     },
-    store::{SharedFlashStorage, app_settings, ota, transit_data},
 };
 
-pub const TCP_SERV_SOCKET_COUNT: usize = 4;
-const DHCP_SERV_SOCKET_COUNT: usize = 1;
-const DNS_SERV_SOCKET_COUNT: usize = 1;
-const AP_SOCKET_COUNT: usize =
-    DHCP_SERV_SOCKET_COUNT + DNS_SERV_SOCKET_COUNT + TCP_SERV_SOCKET_COUNT;
-
 const STA_SOCKET_COUNT: usize = 4;
-
-static WIFI_NET_SIGNAL: Signal<CriticalSectionRawMutex, WifiNetEvent> = Signal::new();
+const AP_GATEWAY_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 4, 1);
+const CONNECT_RETRY_DELAY: Duration = Duration::from_secs(3);
+const CONNECTION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+// Elliptic-curve operations in a row in a TLS handshake (about 10 ms for P-256)
+const TLS_ECP_MAX_OPS: u32 = 200;
 
 pub const CA_BUNDLE: &CStr = match CStr::from_bytes_with_nul(
     concat!(include_str!("../../assets/certs/ca-bundle.pem"), "\0").as_bytes(),
@@ -42,13 +51,40 @@ pub const CA_BUNDLE: &CStr = match CStr::from_bytes_with_nul(
     _ => panic!("CA bundle is not a valid text file"),
 };
 
+pub type SharedWifiController = Mutex<CriticalSectionRawMutex, WifiController<'static>>;
+
 enum WifiNetEvent {
     StartProvisioning,
     FinishProvisioning,
     ConnectToAp,
 }
 
-pub type SharedWifiController = Mutex<CriticalSectionRawMutex, WifiController<'static>>;
+static WIFI_NET_SIGNAL: Signal<CriticalSectionRawMutex, WifiNetEvent> = Signal::new();
+
+// Set from the start of provisioning until the station connected with the
+// credentials saved, and while the WiFi restarts as station only (if closing
+// the setup network failed), which drops the station's link
+static PROVISIONING: AtomicBool = AtomicBool::new(false);
+static PROVISIONING_FINISHED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Whether provisioning is still going on: the credentials aren't saved yet,
+/// or the station's link (if up) is about to drop, so nothing should connect
+/// over it yet.
+pub fn is_provisioning() -> bool {
+    PROVISIONING.load(Ordering::Relaxed)
+}
+
+/// Waits until provisioning (maybe) finished: check with `is_provisioning`.
+pub async fn wait_provisioning_finished() {
+    PROVISIONING_FINISHED.wait().await
+}
+
+fn set_provisioning(provisioning: bool) {
+    PROVISIONING.store(provisioning, Ordering::Relaxed);
+    if !provisioning {
+        PROVISIONING_FINISHED.signal(());
+    }
+}
 
 pub async fn spawn(
     spawner: Spawner,
@@ -56,8 +92,7 @@ pub async fn spawn(
     sha_peri: SHA<'static>,
     flash_store: &'static SharedFlashStorage,
 ) {
-    // Create WiFi controller and interfaces
-    let (controller, wifi_interfaces) = wifi::new(
+    let controller = WifiController::new(
         wifi_peri,
         ControllerConfig::default()
             .with_rx_queue_size(4)
@@ -70,51 +105,39 @@ pub async fn spawn(
             .with_rx_ba_win(4),
     )
     .unwrap();
-    let wifi_ap_device = wifi_interfaces.access_point;
-    let wifi_sta_device = wifi_interfaces.station;
+    profiling::once!(wifi_radio_initialized);
+    let wifi_ap_device = Interface::access_point();
+    let wifi_sta_device = Interface::station();
+
+    // Also the setup network's SSID
+    let device_name = mk_static!(
+        heapless::String<32>,
+        device_name(wifi_ap_device.mac_address())
+    );
 
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
 
-    let gateway_ip = Ipv4Addr::from_str("192.168.4.1").expect("Invalid gateway IP");
-
-    // Create AP stack
     let ap_config = embassy_net::Config::ipv4_static(StaticConfigV4 {
-        address: Ipv4Cidr::new(gateway_ip, 24),
-        gateway: Some(gateway_ip),
+        address: Ipv4Cidr::new(AP_GATEWAY_IP, 24),
+        gateway: Some(AP_GATEWAY_IP),
         dns_servers: Default::default(),
     });
     let (ap_stack, ap_runner) = embassy_net::new(
         wifi_ap_device,
         ap_config,
         mk_static!(
-            StackResources<AP_SOCKET_COUNT>,
-            StackResources::<AP_SOCKET_COUNT>::new()
+            StackResources<{ provisioning::SOCKET_COUNT }>,
+            StackResources::<{ provisioning::SOCKET_COUNT }>::new()
         ),
         seed,
     );
 
-    // Build AP SSID from MAC address
-    let device_name = mk_static!(heapless::String<32>, {
-        let ap_mac = wifi_ap_device.mac_address();
-        let mut ssid = heapless::String::<32>::new();
-        use core::fmt::Write;
-        write!(
-            ssid,
-            "LEDTransit-{:02X}{:02X}{:02X}",
-            ap_mac[3], ap_mac[4], ap_mac[5]
-        )
-        .expect("Failed to write SSID");
-        ssid
-    });
-
-    // Create STA stack
-    let mut dhcp_config: DhcpConfig = Default::default();
+    let mut dhcp_config = DhcpConfig::default();
     dhcp_config.hostname = Some(heapless::String::try_from(device_name.as_str()).unwrap());
-    let sta_config: embassy_net::Config = embassy_net::Config::dhcpv4(dhcp_config);
     let (sta_stack, sta_runner) = embassy_net::new(
         wifi_sta_device,
-        sta_config,
+        embassy_net::Config::dhcpv4(dhcp_config),
         mk_static!(
             StackResources<STA_SOCKET_COUNT>,
             StackResources::<STA_SOCKET_COUNT>::new()
@@ -124,37 +147,39 @@ pub async fn spawn(
 
     let shared_controller = mk_static!(SharedWifiController, Mutex::new(controller));
 
-    // Prepare TLS for HTTPS and WSS
+    // TLS for HTTPS and WSS
     let trng = mk_static!(Trng, Trng::try_new().unwrap());
+    mbedtls_rs::ecp::set_restartable_max_ops(TLS_ECP_MAX_OPS);
     let tls = mk_static!(Tls, Tls::new(trng).unwrap());
     let ca_cert = mk_static!(Certificate<'static>, {
         Certificate::new(X509::PEM(CA_BUNDLE)).expect("Failed to parse CA bundle")
     });
+    profiling::once!(tls_initialized);
 
-    // Spawn network tasks
     spawner.spawn(net_stack_task(ap_runner).unwrap());
     spawner.spawn(net_stack_task(sta_runner).unwrap());
-    dhcp_server::spawn(spawner, ap_stack, gateway_ip);
-    http_server::spawn(spawner, ap_stack, shared_controller, device_name);
+    provisioning::spawn(
+        spawner,
+        ap_stack,
+        AP_GATEWAY_IP,
+        shared_controller,
+        device_name,
+    );
     ws_client::spawn(spawner, sta_stack, shared_controller, tls, ca_cert);
     ota::spawn(spawner, sta_stack, tls, ca_cert, flash_store, sha_peri);
 
+    // Start in station mode
     let settings = app_settings::persist::get_settings().await;
-
-    // Start in STA mode by default
     shared_controller
         .lock()
         .await
-        .set_config(&Config::Station(
-            StationConfig::default()
-                .with_ssid(settings.wifi_ssid.unwrap_or_default().as_str())
-                .with_password(settings.wifi_password.unwrap_or_default().as_str().into()),
-        ))
+        .set_config(&Config::Station(stored_station_config(&settings)))
         .expect("Failed to set STA config");
+    profiling::once!(station_configured);
 
-    // Spawn WiFi network event task
     spawner.spawn(wifi_net_task(shared_controller, device_name).unwrap());
     spawner.spawn(wifi_conn_task(shared_controller).unwrap());
+    spawner.spawn(wifi_events_task(shared_controller).unwrap());
 
     info!("WiFi network stack initialized");
 }
@@ -169,12 +194,75 @@ pub async fn start_provisioning() {
     leds::set_pixels(LedPixels::DemoMode).await;
 }
 
+/// The station connected during setup, with the credentials and token saved:
+/// the gateway connection may start over it, while the setup network is
+/// still open. It stays connected when that closes.
+pub fn setup_station_connected() {
+    set_provisioning(false);
+}
+
 pub fn finish_provisioning() {
     WIFI_NET_SIGNAL.signal(WifiNetEvent::FinishProvisioning);
 }
 
 pub fn connect_ap() {
     WIFI_NET_SIGNAL.signal(WifiNetEvent::ConnectToAp);
+}
+
+// "LEDTransit-" and the last 3 bytes of the MAC address
+fn device_name(mac_address: [u8; 6]) -> heapless::String<32> {
+    let mut name = heapless::String::<32>::new();
+    write!(
+        name,
+        "LEDTransit-{:02X}{:02X}{:02X}",
+        mac_address[3], mac_address[4], mac_address[5]
+    )
+    .expect("Failed to write SSID");
+    name
+}
+
+/// TLS 1.2 unless `allow_tls13`: only there mbedtls splits the handshake's
+/// elliptic-curve math (ECDHE-ECDSA) into slices, instead of blocking
+/// everything (also the LEDs) for about a second. Connections fall back to TLS
+/// 1.3 for servers that refuse 1.2.
+pub fn tls_session_config<'a>(
+    ca_cert: &Certificate<'a>,
+    server_name: &'a CStr,
+    allow_tls13: bool,
+) -> ClientSessionConfig<'a> {
+    ClientSessionConfig {
+        ca_chain: Some(ca_cert.clone()),
+        server_name: Some(server_name),
+        max_version: (!allow_tls13).then_some(TlsVersion::Tls1_2),
+        ..ClientSessionConfig::new()
+    }
+}
+
+/// A TLS error (handshake, alert, certificate), not a network one.
+pub fn is_tls_error(error: &SessionError) -> bool {
+    matches!(error, SessionError::MbedTls(_))
+}
+
+/// The station config to connect with: WPA2 (or better) with the password.
+pub fn station_config(ssid: &str, password: &str) -> StationConfig {
+    // The credentials always fit: they're kept as at most 32 and 64 bytes
+    StationConfig::default()
+        .with_ssid(Ssid::try_from(ssid).expect("SSID too long"))
+        .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
+            Password::try_from(password).expect("Password too long"),
+        ))
+}
+
+/// The setup network: open, named after the device.
+pub fn access_point_config(ssid: &str) -> AccessPointConfig {
+    AccessPointConfig::default().with_ssid(Ssid::try_from(ssid).expect("SSID too long"))
+}
+
+fn stored_station_config(settings: &PersistSettings) -> StationConfig {
+    station_config(
+        settings.wifi_ssid.as_deref().unwrap_or_default(),
+        settings.wifi_password.as_deref().unwrap_or_default(),
+    )
 }
 
 #[embassy_executor::task]
@@ -184,67 +272,13 @@ async fn wifi_net_task(
 ) {
     loop {
         match WIFI_NET_SIGNAL.wait().await {
-            WifiNetEvent::StartProvisioning => {
-                info!("Starting WiFi provisioning mode");
-                leds::set_status(LedStatus::Pairing);
-
-                // Check if already connected to AP
-                if controller.lock().await.is_connected() {
-                    info!("Disconnecting from current WiFi network");
-                    controller.lock().await.disconnect_async().await.ok();
-                }
-
-                // Configure AP+STA mode for provisioning
-                controller
-                    .lock()
-                    .await
-                    .set_config(&Config::AccessPointStation(
-                        StationConfig::default(),
-                        AccessPointConfig::default().with_ssid(ap_ssid.as_str()),
-                    ))
-                    .expect("Failed to set AP+STA config");
-            }
-            WifiNetEvent::FinishProvisioning => {
-                info!("Finishing WiFi provisioning mode");
-                let settings = app_settings::persist::get_settings().await;
-
-                // Configure STA mode with new credentials
-                controller
-                    .lock()
-                    .await
-                    .set_config(&Config::Station(
-                        StationConfig::default()
-                            .with_ssid(settings.wifi_ssid.unwrap_or_default().as_str())
-                            .with_password(
-                                settings.wifi_password.unwrap_or_default().as_str().into(),
-                            ),
-                    ))
-                    .expect("Failed to set STA config");
-                connect_ap();
-            }
+            WifiNetEvent::StartProvisioning => start_setup_network(controller, ap_ssid).await,
+            WifiNetEvent::FinishProvisioning => finish_setup_network(controller).await,
             WifiNetEvent::ConnectToAp => {
-                info!("Connecting to WiFi access point");
-                leds::set_status(LedStatus::ConnectingWifi);
-
-                // Check if already connected to AP
-                if controller.lock().await.is_connected() {
+                if connect_to_ap(controller).await {
                     continue;
                 }
-
-                // Connect to AP
-                match controller.lock().await.connect_async().await {
-                    Ok(_) => {
-                        info!("WiFi connected successfully");
-                        continue;
-                    }
-                    Err(e) => {
-                        error!("WiFi connection failed: {:?}", e);
-                        leds::set_status(LedStatus::WifiError);
-                    }
-                }
-
-                // On failure, try again after a delay
-                Timer::after(Duration::from_secs(3)).await;
+                Timer::after(CONNECT_RETRY_DELAY).await;
                 if !WIFI_NET_SIGNAL.signaled() {
                     connect_ap();
                 }
@@ -253,24 +287,140 @@ async fn wifi_net_task(
     }
 }
 
+async fn start_setup_network(
+    controller: &'static SharedWifiController,
+    ap_ssid: &'static heapless::String<32>,
+) {
+    info!("Starting WiFi provisioning mode");
+    set_provisioning(true);
+    leds::set_status(LedStatus::Pairing);
+
+    if controller.lock().await.is_connected() {
+        info!("Disconnecting from current WiFi network");
+        controller.lock().await.disconnect_async().await.ok();
+    }
+
+    // Access point and station: the station connects to the user's network
+    // during setup
+    controller
+        .lock()
+        .await
+        .set_config(&Config::AccessPointStation(
+            StationConfig::default(),
+            access_point_config(ap_ssid),
+        ))
+        .expect("Failed to set AP+STA config");
+}
+
+/// Closes the setup network. The station, connected during setup, stays
+/// connected.
+async fn finish_setup_network(controller: &'static SharedWifiController) {
+    info!("Finishing WiFi provisioning mode");
+    {
+        let controller = controller.lock().await;
+        if controller.is_connected() && close_access_point(&controller).is_ok() {
+            info!("Setup network closed, WiFi stays connected");
+            set_provisioning(false);
+            return;
+        }
+    }
+
+    // Else start over as station only: restarts the WiFi, the station
+    // connects again
+    set_provisioning(true);
+    let settings = app_settings::persist::get_settings().await;
+    controller
+        .lock()
+        .await
+        .set_config(&Config::Station(stored_station_config(&settings)))
+        .expect("Failed to set STA config");
+    connect_ap();
+}
+
+/// Switches from access point and station to station only, without stopping
+/// the WiFi like `set_config` does (which drops the station's connection).
+/// The driver stops the access point (its stop event updates the controller's
+/// state), the station's config is kept.
+fn close_access_point(_controller: &WifiController<'static>) -> Result<(), ()> {
+    // SAFETY: Called with the controller locked, the WiFi started
+    let result = unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA) };
+    if result != 0 {
+        error!("Failed to close the setup network: {}", result);
+        return Err(());
+    }
+    Ok(())
+}
+
+/// Connects the station, if not connected. False if that failed.
+async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
+    info!("Connecting to WiFi access point");
+    leds::set_status(LedStatus::ConnectingWifi);
+
+    if controller.lock().await.is_connected() {
+        info!("WiFi already connected");
+        set_provisioning(false);
+        return true;
+    }
+
+    profiling::count!(wifi_connect_attempts);
+    profiling::once!(wifi_connect_started);
+    let result = controller.lock().await.connect_async().await;
+    match result {
+        Ok(info) => {
+            info!("WiFi connected successfully (channel {})", info.channel);
+            profiling::once!(wifi_connected);
+            stats::WIFI_CONNECTIONS.inc();
+            set_provisioning(false);
+            true
+        }
+        Err(e) => {
+            error!("WiFi connection failed: {:?}", e);
+            leds::set_status(LedStatus::WifiError);
+            false
+        }
+    }
+}
+
+// Reconnects after the connection was lost
 #[embassy_executor::task]
 async fn wifi_conn_task(controller: &'static SharedWifiController) {
     loop {
-        // Wifi re-connection loop (without blocking controller mutex)
         let should_connect_ap = app_settings::persist::get_settings()
             .await
-            .has_credentials_and_is_authenticated();
+            .has_credentials_and_is_claimed();
         let is_connected = controller.lock().await.is_connected();
-
         if should_connect_ap && !is_connected {
             connect_ap();
         }
+        Timer::after(CONNECTION_CHECK_INTERVAL).await;
+    }
+}
 
-        Timer::after(Duration::from_secs(5)).await;
+// Records why the station was disconnected, or failed to connect: the
+// driver's events, the only place with the reason
+#[embassy_executor::task]
+async fn wifi_events_task(controller: &'static SharedWifiController) {
+    let mut events = {
+        let controller = controller.lock().await;
+        let events = controller
+            .subscribe()
+            .expect("No WiFi event subscriber left");
+        // SAFETY: Only the lifetime changes. The subscriber borrows the
+        // driver's static event channel, not the controller (which is static
+        // too, never moved or dropped), so it may outlive the lock
+        unsafe { core::mem::transmute::<EventSubscriber<'_>, EventSubscriber<'static>>(events) }
+    };
+    loop {
+        // Read right away: the driver drops new events while one isn't read
+        // by every subscriber
+        if let EventInfo::StationDisconnected { reason, .. } = events.next_event_pure().await {
+            info!("WiFi disconnected (reason {})", reason);
+            stats::on_wifi_disconnected(reason);
+        }
     }
 }
 
 #[embassy_executor::task(pool_size = 2)]
-async fn net_stack_task(mut runner: Runner<'static, Interface<'static>>) {
+async fn net_stack_task(mut runner: Runner<'static, Interface>) {
     runner.run().await
 }

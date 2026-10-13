@@ -1,3 +1,9 @@
+# `cargo build` builds the firmware for the ESP32-C3 (use `cargo xtask build`
+# to build it for a product). The tools build for the host (see xtask and
+# prov_server)
+[build]
+target = "riscv32imc-unknown-none-elf"
+
 [target.riscv32imc-unknown-none-elf]
 runner = "probe-rs run --chip=esp32c3 --preverify --always-print-stacktrace --no-location --catch-hardfault --idf-partition-table=partitions.csv --idf-bootloader=assets/boot_image/bootloader.bin"
 rustflags = [
@@ -7,12 +13,15 @@ rustflags = [
 ]
 
 [env]
-ESP_HAL_CONFIG_PLACE_RMT_DRIVER_IN_RAM="true"
 DEFMT_LOG="error"
 SSL_ENABLED="true"
+# A subscriber for the disconnect reasons (see wifi_net) besides the driver's
+# own, and room for events while it reads them
+ESP_RADIO_CONFIG_EVENT_CHANNEL_SUBSCRIBERS="3"
+ESP_RADIO_CONFIG_EVENT_CHANNEL_CAPACITY="8"
 
 [unstable]
 build-std = ["alloc", "core"]
 
 [alias]
-xtask = "run --manifest-path ./xtask/Cargo.toml --"
+xtask = "run --manifest-path ./xtask/Cargo.toml --target host-tuple --"

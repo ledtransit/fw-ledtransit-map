@@ -2476,7 +2476,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 12, from_pix: 23, to_pix: 27, dir: 0x0001 },
             LocPixEdge { to_loc: 10, from_pix: 22, to_pix: 20, dir: 0x0002 },
-            LocPixEdge { to_loc: 318, from_pix: 25, to_pix: 456, dir: 0x0004 },
+            LocPixEdge { to_loc: 318, from_pix: 25, to_pix: 456, dir: 0x0010 },
         ],
     },
     LocPixNode { // idx: 12
@@ -2651,8 +2651,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 36, from_pix: 63, to_pix: 75, dir: 0x0001 },
             LocPixEdge { to_loc: 15, from_pix: 62, to_pix: 32, dir: 0x0002 },
-            LocPixEdge { to_loc: 31, from_pix: 495, to_pix: 65, dir: 0x0004 },
-            LocPixEdge { to_loc: 228, from_pix: 494, to_pix: 492, dir: 0x0008 },
+            LocPixEdge { to_loc: 31, from_pix: 495, to_pix: 65, dir: 0x0010 },
+            LocPixEdge { to_loc: 228, from_pix: 494, to_pix: 492, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 31
@@ -2706,7 +2706,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 37, from_pix: 75, to_pix: 77, dir: 0x0001 },
             LocPixEdge { to_loc: 30, from_pix: 74, to_pix: 62, dir: 0x0002 },
-            LocPixEdge { to_loc: 321, from_pix: 506, to_pix: 504, dir: 0x0004 },
+            LocPixEdge { to_loc: 321, from_pix: 506, to_pix: 504, dir: 0x0010 },
         ],
     },
     LocPixNode { // idx: 37
@@ -3109,8 +3109,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 114, from_pix: 232, to_pix: 230, dir: 0x0001 },
             LocPixEdge { to_loc: 79, from_pix: 233, to_pix: 158, dir: 0x0002 },
-            LocPixEdge { to_loc: 81, from_pix: 161, to_pix: 163, dir: 0x0004 },
-            LocPixEdge { to_loc: 115, from_pix: 160, to_pix: 235, dir: 0x0008 },
+            LocPixEdge { to_loc: 81, from_pix: 161, to_pix: 163, dir: 0x0010 },
+            LocPixEdge { to_loc: 115, from_pix: 160, to_pix: 235, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 81
@@ -3156,8 +3156,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 97, from_pix: 195, to_pix: 197, dir: 0x0001 },
             LocPixEdge { to_loc: 84, from_pix: 194, to_pix: 168, dir: 0x0002 },
-            LocPixEdge { to_loc: 86, from_pix: 171, to_pix: 173, dir: 0x0004 },
-            LocPixEdge { to_loc: 103, from_pix: 170, to_pix: 209, dir: 0x0008 },
+            LocPixEdge { to_loc: 86, from_pix: 171, to_pix: 173, dir: 0x0010 },
+            LocPixEdge { to_loc: 103, from_pix: 170, to_pix: 209, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 86
@@ -3435,8 +3435,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 117, from_pix: 237, to_pix: 239, dir: 0x0001 },
             LocPixEdge { to_loc: 68, from_pix: 236, to_pix: 136, dir: 0x0002 },
-            LocPixEdge { to_loc: 115, from_pix: 534, to_pix: 234, dir: 0x0004 },
-            LocPixEdge { to_loc: 239, from_pix: 535, to_pix: 537, dir: 0x0008 },
+            LocPixEdge { to_loc: 115, from_pix: 534, to_pix: 234, dir: 0x0010 },
+            LocPixEdge { to_loc: 239, from_pix: 535, to_pix: 537, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 117
@@ -3503,7 +3503,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 124, from_pix: 253, to_pix: 255, dir: 0x0001 },
             LocPixEdge { to_loc: 133, from_pix: 252, to_pix: 279, dir: 0x0002 },
-            LocPixEdge { to_loc: 122, from_pix: 250, to_pix: 248, dir: 0x0004 },
+            LocPixEdge { to_loc: 122, from_pix: 250, to_pix: 248, dir: 0x0010 },
         ],
     },
     LocPixNode { // idx: 124
@@ -3633,7 +3633,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 138, from_pix: 287, to_pix: 289, dir: 0x0001 },
             LocPixEdge { to_loc: 136, from_pix: 286, to_pix: 284, dir: 0x0002 },
-            LocPixEdge { to_loc: 149, from_pix: 304, to_pix: 330, dir: 0x0004 },
+            LocPixEdge { to_loc: 149, from_pix: 304, to_pix: 330, dir: 0x0010 },
         ],
     },
     LocPixNode { // idx: 138
@@ -3751,8 +3751,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 151, from_pix: 328, to_pix: 307, dir: 0x0001 },
             LocPixEdge { to_loc: 169, from_pix: 329, to_pix: 333, dir: 0x0002 },
-            LocPixEdge { to_loc: 149, from_pix: 327, to_pix: 331, dir: 0x0004 },
-            LocPixEdge { to_loc: 152, from_pix: 326, to_pix: 324, dir: 0x0008 },
+            LocPixEdge { to_loc: 149, from_pix: 327, to_pix: 331, dir: 0x0010 },
+            LocPixEdge { to_loc: 152, from_pix: 326, to_pix: 324, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 151
@@ -3995,8 +3995,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 177, from_pix: 371, to_pix: 373, dir: 0x0001 },
             LocPixEdge { to_loc: 159, from_pix: 370, to_pix: 336, dir: 0x0002 },
-            LocPixEdge { to_loc: 175, from_pix: 720, to_pix: 368, dir: 0x0004 },
-            LocPixEdge { to_loc: 277, from_pix: 721, to_pix: 723, dir: 0x0008 },
+            LocPixEdge { to_loc: 175, from_pix: 720, to_pix: 368, dir: 0x0010 },
+            LocPixEdge { to_loc: 277, from_pix: 721, to_pix: 723, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 177
@@ -4015,8 +4015,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 188, from_pix: 375, to_pix: 395, dir: 0x0001 },
             LocPixEdge { to_loc: 177, from_pix: 374, to_pix: 372, dir: 0x0002 },
-            LocPixEdge { to_loc: 179, from_pix: 741, to_pix: 377, dir: 0x0004 },
-            LocPixEdge { to_loc: 299, from_pix: 740, to_pix: 738, dir: 0x0008 },
+            LocPixEdge { to_loc: 179, from_pix: 741, to_pix: 377, dir: 0x0010 },
+            LocPixEdge { to_loc: 299, from_pix: 740, to_pix: 738, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 179
@@ -4279,8 +4279,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 216, from_pix: 433, to_pix: 451, dir: 0x0001 },
             LocPixEdge { to_loc: 206, from_pix: 432, to_pix: 430, dir: 0x0002 },
-            LocPixEdge { to_loc: 208, from_pix: 670, to_pix: 435, dir: 0x0004 },
-            LocPixEdge { to_loc: 306, from_pix: 671, to_pix: 675, dir: 0x0008 },
+            LocPixEdge { to_loc: 208, from_pix: 670, to_pix: 435, dir: 0x0010 },
+            LocPixEdge { to_loc: 306, from_pix: 671, to_pix: 675, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 208
@@ -4361,8 +4361,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 217, from_pix: 451, to_pix: 459, dir: 0x0001 },
             LocPixEdge { to_loc: 207, from_pix: 450, to_pix: 432, dir: 0x0002 },
-            LocPixEdge { to_loc: 315, from_pix: 668, to_pix: 662, dir: 0x0004 },
-            LocPixEdge { to_loc: 316, from_pix: 669, to_pix: 453, dir: 0x0008 },
+            LocPixEdge { to_loc: 315, from_pix: 668, to_pix: 662, dir: 0x0010 },
+            LocPixEdge { to_loc: 316, from_pix: 669, to_pix: 453, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 217
@@ -4372,7 +4372,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 14, from_pix: 459, to_pix: 31, dir: 0x0001 },
             LocPixEdge { to_loc: 216, from_pix: 458, to_pix: 450, dir: 0x0002 },
-            LocPixEdge { to_loc: 218, from_pix: 461, to_pix: 463, dir: 0x0004 },
+            LocPixEdge { to_loc: 218, from_pix: 461, to_pix: 463, dir: 0x0010 },
         ],
     },
     LocPixNode { // idx: 218
@@ -4438,8 +4438,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 285, from_pix: 483, to_pix: 640, dir: 0x0001 },
             LocPixEdge { to_loc: 15, from_pix: 482, to_pix: 480, dir: 0x0002 },
-            LocPixEdge { to_loc: 225, from_pix: 477, to_pix: 485, dir: 0x0004 },
-            LocPixEdge { to_loc: 221, from_pix: 476, to_pix: 470, dir: 0x0008 },
+            LocPixEdge { to_loc: 225, from_pix: 477, to_pix: 485, dir: 0x0010 },
+            LocPixEdge { to_loc: 221, from_pix: 476, to_pix: 470, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 225
@@ -4991,9 +4991,9 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         modes: 0b11,
         edges: &[
             LocPixEdge { to_loc: 259, from_pix: 633, to_pix: 584, dir: 0x0001 },
-            LocPixEdge { to_loc: 260, from_pix: 630, to_pix: 628, dir: 0x0002 },
-            LocPixEdge { to_loc: 281, from_pix: 632, to_pix: 711, dir: 0x0004 },
-            LocPixEdge { to_loc: 284, from_pix: 631, to_pix: 635, dir: 0x0008 },
+            LocPixEdge { to_loc: 260, from_pix: 630, to_pix: 628, dir: 0x0010 },
+            LocPixEdge { to_loc: 281, from_pix: 632, to_pix: 711, dir: 0x0002 },
+            LocPixEdge { to_loc: 284, from_pix: 631, to_pix: 635, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 283
@@ -5012,8 +5012,8 @@ pub const LOC_PIX_NODES: [LocPixNode; 322] = [
         edges: &[
             LocPixEdge { to_loc: 285, from_pix: 635, to_pix: 641, dir: 0x0001 },
             LocPixEdge { to_loc: 282, from_pix: 634, to_pix: 630, dir: 0x0002 },
-            LocPixEdge { to_loc: 283, from_pix: 637, to_pix: 639, dir: 0x0004 },
-            LocPixEdge { to_loc: 286, from_pix: 636, to_pix: 643, dir: 0x0008 },
+            LocPixEdge { to_loc: 283, from_pix: 637, to_pix: 639, dir: 0x0010 },
+            LocPixEdge { to_loc: 286, from_pix: 636, to_pix: 643, dir: 0x0020 },
         ],
     },
     LocPixNode { // idx: 285

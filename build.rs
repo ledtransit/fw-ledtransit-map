@@ -3,13 +3,23 @@ use std::env;
 const PROD_VIRTUAL: &str = "virt1-1-1";
 const PROD_LIST: &[&str] = &[PROD_VIRTUAL, "bln1-2512-1", "bln2-2512-1"];
 
+const TARGET: &str = "riscv32imc-unknown-none-elf";
+
 fn main() {
+    let target = env::var("TARGET").unwrap_or_default();
+    assert!(
+        target == TARGET,
+        "The firmware builds for {TARGET}, not {target}. Build it with `cargo xtask build [product]`, or flash it with `cargo xtask run [product]`"
+    );
+
     // Compile protobuf schema to Rust code with serde attributes
     prost_build::Config::new()
         .type_attribute(
             ".",
             "#[derive(Deserialize,Serialize)] #[serde(rename_all = \"snake_case\")]",
         )
+        // Large and rare: boxed, so every message isn't as large
+        .boxed(".ledtransit_client.ClientMessage.payload.profiling")
         .compile_protos(
             &["assets/proto_schema/ledtransit_client.proto"],
             &["assets/proto_schema"],
@@ -17,10 +27,11 @@ fn main() {
         .expect("Failed to compile proto files");
 
     // Get product to build for from environment
+    // Without a product (e.g. for rust-analyzer), the virtual product: it
+    // builds, but doesn't run on a map
     let product = env::var("PRODUCT").unwrap_or_else(|_| {
         println!(
-            "Environment variable PRODUCT not set. Please specify product with PRODUCT=<...> as one of: {:?}",
-            PROD_LIST
+            "cargo:warning=No PRODUCT set: building the virtual product, which doesn't run on a map. Build the firmware with `cargo xtask build [product]`, or flash it with `cargo xtask run [product]`"
         );
         PROD_VIRTUAL.to_string()
     });
@@ -51,7 +62,13 @@ fn main() {
     println!("cargo:rustc-env=HW_MAJOR={}", hw_major);
     println!("cargo:rustc-env=HW_MINOR={}", hw_minor);
     println!("cargo:rustc-check-cfg=cfg(ssl_enabled)");
-    if env::var("SSL_ENABLED").ok().as_deref() == Some("true") {
+    let ssl_enabled = env::var("SSL_ENABLED").ok().as_deref() == Some("true");
+    if ssl_enabled {
         println!("cargo:rustc-cfg=ssl_enabled");
+    }
+
+    // Release builds talk to the gateway and download updates over TLS only
+    if env::var("RELEASE").ok().as_deref() == Some("true") {
+        assert!(ssl_enabled, "Release builds require SSL_ENABLED=true");
     }
 }

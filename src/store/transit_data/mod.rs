@@ -1,0 +1,276 @@
+// The latest transit data from the server, with the renderer's state of it
+mod data;
+mod stops;
+
+use alloc::{string::String, vec::Vec};
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex,
+    mutex::{Mutex, MutexGuard},
+    signal::Signal,
+};
+use embassy_time::{Duration, Instant};
+
+use crate::{
+    display::renderer::{self, RenderedDisruption, RenderedVehicle, RendererOutput, RendererState},
+    net::ws_client::{self, client_proto::LineConfig},
+    profiling,
+    store::app_settings,
+    time,
+};
+
+pub use data::{Disruption, MovementSegment, Stop, TransitData, VehicleMovement, ViaStop};
+
+static TRANSIT_DATA_STORE: Mutex<CriticalSectionRawMutex, Option<TransitDataStore>> =
+    Mutex::new(None);
+// Raised when the data goes stale, or new data arrives after it was
+static STALE_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+pub struct TransitDataStore {
+    pub data: TransitData,
+    pub state: TransitDataState,
+    pub stats: TransitDataStats,
+}
+
+#[derive(Clone, Default)]
+pub struct TransitDataState {
+    pub rendered_state: RendererState,
+    pub renderer_out: RendererOutput,
+    pub is_data_stale: bool, // No new transit data received in a while
+    pub painter_telemetry_pending: bool, // Telemetry once the painter shows the data faded in, or the changed config
+}
+
+#[derive(Clone, Default)]
+pub struct TransitDataStats {
+    pub received_at_timestamp: u32, // When data was received from server
+    pub sourced_at_timestamp: u32,  // When data was sourced by server from feed
+    pub simulated_until_timestamp: u32,
+    pub size_bytes: u32,     // Encoded, as received
+    pub receive_millis: u32, // From its frame header to its payload received and decoded
+    pub num_vehicles_available: u32,
+    pub num_vehicles_visible: u32,
+    pub num_vehicles_visible_real_time: u32,
+    pub num_disruptions_available: u32,
+    pub num_disruptions_visible: u32,
+    pub num_pixels_on: u32,
+    pub feed_source: String,
+}
+
+pub async fn on_data(transit_data: TransitData, size_bytes: usize, received_in: Duration) {
+    let now_timestamp = time::get_unix_timestamp_seconds().await;
+    let mut store = TRANSIT_DATA_STORE.lock().await;
+    let prev = store.as_ref();
+    let was_stale = prev.is_some_and(|s| s.state.is_data_stale);
+    let is_first = prev.is_none();
+    let renderer_out = RendererOutput {
+        vehicles: carry_over_vehicles(&transit_data, prev),
+        disruptions: carry_over_disruptions(&transit_data, prev),
+    };
+    let rendered_state = RendererState {
+        rendered_data_first_at_instant_ms: None,
+        disruptions_render_pending: true,
+        ..prev
+            .map(|s| s.state.rendered_state.clone())
+            .unwrap_or_default()
+    };
+    let stats = TransitDataStats {
+        received_at_timestamp: now_timestamp,
+        sourced_at_timestamp: transit_data.sourced_at_unix_timestamp,
+        simulated_until_timestamp: transit_data.simulated_until_unix_timestamp,
+        size_bytes: size_bytes as u32,
+        receive_millis: received_in.as_millis() as u32,
+        feed_source: transit_data.feed_source.clone(),
+        ..prev.map(|s| s.stats.clone()).unwrap_or_default()
+    };
+    // Replaces (frees) the previous data
+    *store = Some(TransitDataStore {
+        data: transit_data,
+        state: TransitDataState {
+            rendered_state,
+            renderer_out,
+            is_data_stale: false,
+            // Only one pending for a config change carries over: the painter
+            // asks for one when it fades the data in
+            painter_telemetry_pending: prev.is_some_and(|s| s.state.painter_telemetry_pending),
+        },
+        stats,
+    });
+    drop(store);
+    profiling::once!(first_transit_data_cleared);
+    if was_stale {
+        STALE_CHANGED.signal(());
+    }
+    // The first since boot (or setup): reported right away, not only once shown
+    if is_first {
+        ws_client::send_telemetry();
+    }
+    profiling::once!(first_transit_data_stored);
+
+    update_line_configs().await;
+    // Shown right away, not with the renderer's next frame (up to a second)
+    renderer::render_now();
+}
+
+// The vehicles keep their rendered state from the previous data, by trip ID
+fn carry_over_vehicles(
+    transit_data: &TransitData,
+    prev: Option<&TransitDataStore>,
+) -> Vec<RenderedVehicle> {
+    let prev_vehicles = prev.map_or(&[][..], |s| s.state.renderer_out.vehicles.as_slice());
+    transit_data
+        .vehicle_movements
+        .iter()
+        .map(|vehicle| {
+            let trip_id = vehicle.trip_id;
+            prev_vehicles
+                .iter()
+                .find(|v| v.trip_id.as_option() == Some(trip_id))
+                .cloned()
+                .unwrap_or_else(|| RenderedVehicle::new(trip_id))
+        })
+        .collect()
+}
+
+// The disruptions keep their rendered state from the previous data, by
+// disruption ID
+fn carry_over_disruptions(
+    transit_data: &TransitData,
+    prev: Option<&TransitDataStore>,
+) -> Vec<RenderedDisruption> {
+    let prev_disruptions = prev.map_or(&[][..], |s| s.state.renderer_out.disruptions.as_slice());
+    transit_data
+        .disruptions
+        .iter()
+        .map(|disruption| {
+            let disruption_id = disruption.disruption_id;
+            prev_disruptions
+                .iter()
+                .find(|d| d.disruption_id.as_option() == Some(disruption_id))
+                .cloned()
+                .unwrap_or_else(|| RenderedDisruption::new(disruption_id))
+        })
+        .collect()
+}
+
+/// Keeps a line config for each line of the transit data, following the
+/// lines' original colors.
+pub async fn update_line_configs() {
+    let store = TRANSIT_DATA_STORE.lock().await;
+    let Some(store) = store.as_ref() else {
+        return;
+    };
+    let config = app_settings::persist::get_settings().await.config;
+    let mut config_changed = false;
+
+    for line in store.data.lines.iter() {
+        match config
+            .line_configs
+            .iter()
+            .find(|line_config| line_config.line_name == line.name)
+        {
+            Some(line_config) if line_config.original_color_rgb8 != line.color_rgb8 => {
+                app_settings::persist::update_settings(|set| {
+                    if let Some(line_config) = set
+                        .config
+                        .line_configs
+                        .iter_mut()
+                        .find(|line_config| line_config.line_name == line.name)
+                    {
+                        line_config.original_color_rgb8 = line.color_rgb8;
+                        if !line_config.has_override {
+                            line_config.override_color_rgb8 = line.color_rgb8;
+                        }
+                    }
+                })
+                .await;
+                config_changed = true;
+            }
+            Some(_) => {}
+            None => {
+                app_settings::persist::update_settings(|set| {
+                    set.config.line_configs.push(LineConfig {
+                        line_name: line.name.clone(),
+                        enabled: true,
+                        has_override: false,
+                        brightness_percent: 100,
+                        original_color_rgb8: line.color_rgb8,
+                        override_color_rgb8: line.color_rgb8,
+                    });
+                })
+                .await;
+                config_changed = true;
+            }
+        }
+    }
+
+    if config_changed {
+        ws_client::send_config();
+    }
+}
+
+/// Frees the data, keeping what was rendered: new data then doesn't have to
+/// fit into memory next to it.
+pub async fn clear() {
+    let mut store = TRANSIT_DATA_STORE.lock().await;
+    if let Some(store) = store.as_mut() {
+        store.state.rendered_state.rendered_data_first_at_instant_ms = None;
+        store.data = TransitData::default();
+    }
+}
+
+pub async fn on_data_stale() {
+    clear().await;
+    let mut store = TRANSIT_DATA_STORE.lock().await;
+    if let Some(store) = store.as_mut() {
+        if !store.state.is_data_stale {
+            STALE_CHANGED.signal(());
+        }
+        store.state.is_data_stale = true;
+        store.state.rendered_state.drawn_first_frame_at_instant_ms = None;
+        store.state.renderer_out = RendererOutput::default();
+    }
+}
+
+pub async fn reset() {
+    *TRANSIT_DATA_STORE.lock().await = None;
+}
+
+/// No new data in a while, e.g. the gateway stopped sending it with the light off.
+pub async fn is_stale() -> bool {
+    TRANSIT_DATA_STORE
+        .lock()
+        .await
+        .as_ref()
+        .is_some_and(|store| store.state.is_data_stale)
+}
+
+pub async fn wait_stale_changed() {
+    STALE_CHANGED.wait().await;
+}
+
+pub async fn is_set() -> bool {
+    TRANSIT_DATA_STORE.lock().await.is_some()
+}
+
+pub async fn get_stats() -> TransitDataStats {
+    TRANSIT_DATA_STORE
+        .lock()
+        .await
+        .as_ref()
+        .map(|store| store.stats.clone())
+        .unwrap_or_default()
+}
+
+pub async fn get_mut<'a>() -> MutexGuard<'a, CriticalSectionRawMutex, Option<TransitDataStore>> {
+    TRANSIT_DATA_STORE.lock().await
+}
+
+pub async fn on_config_updated() {
+    let mut store = TRANSIT_DATA_STORE.lock().await;
+    if let Some(store) = store.as_mut() {
+        store.state.painter_telemetry_pending = true;
+        store.state.rendered_state.disruptions_render_pending = true;
+        store.state.rendered_state.config_last_changed_at_instant_ms =
+            Instant::now().as_millis() as u32;
+    }
+    renderer::render_now();
+}

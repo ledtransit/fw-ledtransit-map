@@ -426,15 +426,15 @@ pub const PIXEL_INDICES_SPECIAL: &[u16] = &[
     36, 35, 18, 17, 16, 264, 263, 262, 261, 252, 251, 250, 249, 248, 235, 229, 228, 227, 226, 216,
     215, 214, 213, 212, 211, 193,
 ];
-pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
+pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 411] = [
     LocGeoKdNode {
         left: Some(1),
-        right: Some(207),
+        right: Some(206),
         loc: 231,
     },
     LocGeoKdNode {
         left: Some(2),
-        right: Some(105),
+        right: Some(104),
         loc: 276,
     },
     LocGeoKdNode {
@@ -575,7 +575,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(30),
         right: Some(42),
-        loc: 408,
+        loc: 407,
     },
     LocGeoKdNode {
         left: Some(31),
@@ -585,7 +585,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(32),
         right: Some(35),
-        loc: 410,
+        loc: 409,
     },
     LocGeoKdNode {
         left: Some(33),
@@ -610,7 +610,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 409,
+        loc: 408,
     },
     LocGeoKdNode {
         left: Some(38),
@@ -670,7 +670,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 407,
+        loc: 406,
     },
     LocGeoKdNode {
         left: Some(50),
@@ -700,7 +700,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(55),
         right: Some(80),
-        loc: 395,
+        loc: 394,
     },
     LocGeoKdNode {
         left: Some(56),
@@ -710,12 +710,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(57),
         right: Some(63),
-        loc: 390,
+        loc: 389,
     },
     LocGeoKdNode {
         left: Some(58),
         right: Some(61),
-        loc: 389,
+        loc: 388,
     },
     LocGeoKdNode {
         left: Some(59),
@@ -745,32 +745,32 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(64),
         right: Some(66),
-        loc: 392,
+        loc: 391,
     },
     LocGeoKdNode {
         left: Some(65),
         right: None,
-        loc: 405,
+        loc: 404,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 391,
+        loc: 390,
     },
     LocGeoKdNode {
         left: Some(67),
         right: None,
-        loc: 394,
+        loc: 393,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 393,
+        loc: 392,
     },
     LocGeoKdNode {
         left: Some(69),
         right: Some(75),
-        loc: 385,
+        loc: 384,
     },
     LocGeoKdNode {
         left: Some(70),
@@ -790,7 +790,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 383,
+        loc: 382,
     },
     LocGeoKdNode {
         left: Some(74),
@@ -805,32 +805,32 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(76),
         right: Some(78),
-        loc: 387,
+        loc: 386,
     },
     LocGeoKdNode {
         left: Some(77),
         right: None,
-        loc: 396,
+        loc: 395,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 388,
+        loc: 387,
     },
     LocGeoKdNode {
         left: Some(79),
         right: None,
-        loc: 386,
+        loc: 385,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 384,
+        loc: 383,
     },
     LocGeoKdNode {
         left: Some(81),
         right: Some(93),
-        loc: 401,
+        loc: 400,
     },
     LocGeoKdNode {
         left: Some(82),
@@ -845,12 +845,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(84),
         right: Some(85),
-        loc: 403,
+        loc: 402,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 406,
+        loc: 405,
     },
     LocGeoKdNode {
         left: None,
@@ -860,12 +860,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     LocGeoKdNode {
         left: Some(87),
         right: None,
-        loc: 402,
+        loc: 401,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 404,
+        loc: 403,
     },
     LocGeoKdNode {
         left: Some(89),
@@ -894,18 +894,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
     },
     LocGeoKdNode {
         left: Some(94),
-        right: Some(100),
-        loc: 400,
-    },
-    LocGeoKdNode {
-        left: Some(95),
-        right: Some(98),
+        right: Some(99),
         loc: 399,
     },
     LocGeoKdNode {
-        left: Some(96),
+        left: Some(95),
         right: Some(97),
-        loc: 398,
+        loc: 396,
+    },
+    LocGeoKdNode {
+        left: Some(96),
+        right: None,
+        loc: 369,
     },
     LocGeoKdNode {
         left: None,
@@ -913,27 +913,22 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 397,
     },
     LocGeoKdNode {
-        left: None,
+        left: Some(98),
         right: None,
-        loc: 369,
-    },
-    LocGeoKdNode {
-        left: Some(99),
-        right: None,
-        loc: 370,
+        loc: 398,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 375,
+        loc: 374,
     },
     LocGeoKdNode {
-        left: Some(101),
-        right: Some(103),
+        left: Some(100),
+        right: Some(102),
         loc: 368,
     },
     LocGeoKdNode {
-        left: Some(102),
+        left: Some(101),
         right: None,
         loc: 365,
     },
@@ -943,7 +938,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 366,
     },
     LocGeoKdNode {
-        left: Some(104),
+        left: Some(103),
         right: None,
         loc: 364,
     },
@@ -953,33 +948,33 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 367,
     },
     LocGeoKdNode {
-        left: Some(106),
-        right: Some(157),
+        left: Some(105),
+        right: Some(156),
         loc: 56,
     },
     LocGeoKdNode {
-        left: Some(107),
-        right: Some(132),
+        left: Some(106),
+        right: Some(131),
         loc: 53,
     },
     LocGeoKdNode {
-        left: Some(108),
-        right: Some(120),
+        left: Some(107),
+        right: Some(119),
         loc: 40,
     },
     LocGeoKdNode {
-        left: Some(109),
-        right: Some(115),
+        left: Some(108),
+        right: Some(114),
         loc: 34,
     },
     LocGeoKdNode {
-        left: Some(110),
-        right: Some(113),
+        left: Some(109),
+        right: Some(112),
         loc: 30,
     },
     LocGeoKdNode {
-        left: Some(111),
-        right: Some(112),
+        left: Some(110),
+        right: Some(111),
         loc: 32,
     },
     LocGeoKdNode {
@@ -993,7 +988,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 33,
     },
     LocGeoKdNode {
-        left: Some(114),
+        left: Some(113),
         right: None,
         loc: 41,
     },
@@ -1003,12 +998,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 29,
     },
     LocGeoKdNode {
-        left: Some(116),
-        right: Some(118),
+        left: Some(115),
+        right: Some(117),
         loc: 51,
     },
     LocGeoKdNode {
-        left: Some(117),
+        left: Some(116),
         right: None,
         loc: 67,
     },
@@ -1018,7 +1013,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 52,
     },
     LocGeoKdNode {
-        left: Some(119),
+        left: Some(118),
         right: None,
         loc: 49,
     },
@@ -1028,18 +1023,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 50,
     },
     LocGeoKdNode {
-        left: Some(121),
-        right: Some(127),
+        left: Some(120),
+        right: Some(126),
         loc: 44,
     },
     LocGeoKdNode {
-        left: Some(122),
-        right: Some(125),
+        left: Some(121),
+        right: Some(124),
         loc: 37,
     },
     LocGeoKdNode {
-        left: Some(123),
-        right: Some(124),
+        left: Some(122),
+        right: Some(123),
         loc: 38,
     },
     LocGeoKdNode {
@@ -1053,7 +1048,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 43,
     },
     LocGeoKdNode {
-        left: Some(126),
+        left: Some(125),
         right: None,
         loc: 42,
     },
@@ -1063,12 +1058,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 36,
     },
     LocGeoKdNode {
-        left: Some(128),
-        right: Some(130),
+        left: Some(127),
+        right: Some(129),
         loc: 45,
     },
     LocGeoKdNode {
-        left: Some(129),
+        left: Some(128),
         right: None,
         loc: 48,
     },
@@ -1078,7 +1073,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 47,
     },
     LocGeoKdNode {
-        left: Some(131),
+        left: Some(130),
         right: None,
         loc: 57,
     },
@@ -1088,23 +1083,23 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 46,
     },
     LocGeoKdNode {
-        left: Some(133),
-        right: Some(145),
+        left: Some(132),
+        right: Some(144),
         loc: 93,
     },
     LocGeoKdNode {
-        left: Some(134),
-        right: Some(140),
+        left: Some(133),
+        right: Some(139),
         loc: 64,
     },
     LocGeoKdNode {
-        left: Some(135),
-        right: Some(138),
+        left: Some(134),
+        right: Some(137),
         loc: 55,
     },
     LocGeoKdNode {
-        left: Some(136),
-        right: Some(137),
+        left: Some(135),
+        right: Some(136),
         loc: 66,
     },
     LocGeoKdNode {
@@ -1118,7 +1113,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 65,
     },
     LocGeoKdNode {
-        left: Some(139),
+        left: Some(138),
         right: None,
         loc: 63,
     },
@@ -1128,12 +1123,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 54,
     },
     LocGeoKdNode {
-        left: Some(141),
-        right: Some(143),
+        left: Some(140),
+        right: Some(142),
         loc: 71,
     },
     LocGeoKdNode {
-        left: Some(142),
+        left: Some(141),
         right: None,
         loc: 72,
     },
@@ -1143,7 +1138,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 73,
     },
     LocGeoKdNode {
-        left: Some(144),
+        left: Some(143),
         right: None,
         loc: 70,
     },
@@ -1153,18 +1148,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 69,
     },
     LocGeoKdNode {
-        left: Some(146),
-        right: Some(152),
+        left: Some(145),
+        right: Some(151),
         loc: 75,
     },
     LocGeoKdNode {
-        left: Some(147),
-        right: Some(150),
+        left: Some(146),
+        right: Some(149),
         loc: 60,
     },
     LocGeoKdNode {
-        left: Some(148),
-        right: Some(149),
+        left: Some(147),
+        right: Some(148),
         loc: 74,
     },
     LocGeoKdNode {
@@ -1178,7 +1173,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 62,
     },
     LocGeoKdNode {
-        left: Some(151),
+        left: Some(150),
         right: None,
         loc: 87,
     },
@@ -1188,12 +1183,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 59,
     },
     LocGeoKdNode {
-        left: Some(153),
-        right: Some(155),
+        left: Some(152),
+        right: Some(154),
         loc: 90,
     },
     LocGeoKdNode {
-        left: Some(154),
+        left: Some(153),
         right: None,
         loc: 92,
     },
@@ -1203,7 +1198,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 91,
     },
     LocGeoKdNode {
-        left: Some(156),
+        left: Some(155),
         right: None,
         loc: 89,
     },
@@ -1213,28 +1208,28 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 88,
     },
     LocGeoKdNode {
-        left: Some(158),
-        right: Some(183),
+        left: Some(157),
+        right: Some(182),
         loc: 288,
     },
     LocGeoKdNode {
-        left: Some(159),
-        right: Some(171),
+        left: Some(158),
+        right: Some(170),
         loc: 277,
     },
     LocGeoKdNode {
-        left: Some(160),
-        right: Some(166),
+        left: Some(159),
+        right: Some(165),
         loc: 283,
     },
     LocGeoKdNode {
-        left: Some(161),
-        right: Some(164),
+        left: Some(160),
+        right: Some(163),
         loc: 275,
     },
     LocGeoKdNode {
-        left: Some(162),
-        right: Some(163),
+        left: Some(161),
+        right: Some(162),
         loc: 282,
     },
     LocGeoKdNode {
@@ -1248,7 +1243,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 280,
     },
     LocGeoKdNode {
-        left: Some(165),
+        left: Some(164),
         right: None,
         loc: 314,
     },
@@ -1258,12 +1253,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 279,
     },
     LocGeoKdNode {
-        left: Some(167),
-        right: Some(169),
+        left: Some(166),
+        right: Some(168),
         loc: 285,
     },
     LocGeoKdNode {
-        left: Some(168),
+        left: Some(167),
         right: None,
         loc: 287,
     },
@@ -1273,7 +1268,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 286,
     },
     LocGeoKdNode {
-        left: Some(170),
+        left: Some(169),
         right: None,
         loc: 291,
     },
@@ -1283,18 +1278,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 284,
     },
     LocGeoKdNode {
-        left: Some(172),
-        right: Some(178),
+        left: Some(171),
+        right: Some(177),
         loc: 313,
     },
     LocGeoKdNode {
-        left: Some(173),
-        right: Some(176),
+        left: Some(172),
+        right: Some(175),
         loc: 361,
     },
     LocGeoKdNode {
-        left: Some(174),
-        right: Some(175),
+        left: Some(173),
+        right: Some(174),
         loc: 362,
     },
     LocGeoKdNode {
@@ -1308,7 +1303,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 278,
     },
     LocGeoKdNode {
-        left: Some(177),
+        left: Some(176),
         right: None,
         loc: 315,
     },
@@ -1318,12 +1313,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 360,
     },
     LocGeoKdNode {
-        left: Some(179),
-        right: Some(181),
+        left: Some(178),
+        right: Some(180),
         loc: 292,
     },
     LocGeoKdNode {
-        left: Some(180),
+        left: Some(179),
         right: None,
         loc: 311,
     },
@@ -1333,7 +1328,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 312,
     },
     LocGeoKdNode {
-        left: Some(182),
+        left: Some(181),
         right: None,
         loc: 293,
     },
@@ -1343,23 +1338,23 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 310,
     },
     LocGeoKdNode {
-        left: Some(184),
-        right: Some(196),
+        left: Some(183),
+        right: Some(195),
         loc: 80,
     },
     LocGeoKdNode {
-        left: Some(185),
-        right: Some(191),
+        left: Some(184),
+        right: Some(190),
         loc: 58,
     },
     LocGeoKdNode {
-        left: Some(186),
-        right: Some(189),
+        left: Some(185),
+        right: Some(188),
         loc: 289,
     },
     LocGeoKdNode {
-        left: Some(187),
-        right: Some(188),
+        left: Some(186),
+        right: Some(187),
         loc: 77,
     },
     LocGeoKdNode {
@@ -1373,7 +1368,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 76,
     },
     LocGeoKdNode {
-        left: Some(190),
+        left: Some(189),
         right: None,
         loc: 79,
     },
@@ -1383,12 +1378,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 78,
     },
     LocGeoKdNode {
-        left: Some(192),
-        right: Some(194),
+        left: Some(191),
+        right: Some(193),
         loc: 84,
     },
     LocGeoKdNode {
-        left: Some(193),
+        left: Some(192),
         right: None,
         loc: 86,
     },
@@ -1398,7 +1393,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 85,
     },
     LocGeoKdNode {
-        left: Some(195),
+        left: Some(194),
         right: None,
         loc: 98,
     },
@@ -1408,17 +1403,17 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 83,
     },
     LocGeoKdNode {
-        left: Some(197),
-        right: Some(202),
+        left: Some(196),
+        right: Some(201),
         loc: 82,
     },
     LocGeoKdNode {
-        left: Some(198),
-        right: Some(200),
+        left: Some(197),
+        right: Some(199),
         loc: 297,
     },
     LocGeoKdNode {
-        left: Some(199),
+        left: Some(198),
         right: None,
         loc: 81,
     },
@@ -1428,7 +1423,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 294,
     },
     LocGeoKdNode {
-        left: Some(201),
+        left: Some(200),
         right: None,
         loc: 296,
     },
@@ -1438,12 +1433,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 295,
     },
     LocGeoKdNode {
-        left: Some(203),
-        right: Some(205),
+        left: Some(202),
+        right: Some(204),
         loc: 94,
     },
     LocGeoKdNode {
-        left: Some(204),
+        left: Some(203),
         right: None,
         loc: 99,
     },
@@ -1453,7 +1448,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 97,
     },
     LocGeoKdNode {
-        left: Some(206),
+        left: Some(205),
         right: None,
         loc: 100,
     },
@@ -1463,38 +1458,38 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 96,
     },
     LocGeoKdNode {
-        left: Some(208),
-        right: Some(310),
+        left: Some(207),
+        right: Some(309),
         loc: 357,
     },
     LocGeoKdNode {
-        left: Some(209),
-        right: Some(260),
+        left: Some(208),
+        right: Some(259),
         loc: 211,
     },
     LocGeoKdNode {
-        left: Some(210),
-        right: Some(235),
+        left: Some(209),
+        right: Some(234),
         loc: 215,
     },
     LocGeoKdNode {
-        left: Some(211),
-        right: Some(223),
-        loc: 380,
+        left: Some(210),
+        right: Some(222),
+        loc: 379,
     },
     LocGeoKdNode {
-        left: Some(212),
-        right: Some(218),
+        left: Some(211),
+        right: Some(217),
         loc: 227,
     },
     LocGeoKdNode {
-        left: Some(213),
-        right: Some(216),
+        left: Some(212),
+        right: Some(215),
         loc: 232,
     },
     LocGeoKdNode {
-        left: Some(214),
-        right: Some(215),
+        left: Some(213),
+        right: Some(214),
         loc: 240,
     },
     LocGeoKdNode {
@@ -1508,7 +1503,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 230,
     },
     LocGeoKdNode {
-        left: Some(217),
+        left: Some(216),
         right: None,
         loc: 233,
     },
@@ -1518,24 +1513,24 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 234,
     },
     LocGeoKdNode {
-        left: Some(219),
-        right: Some(221),
-        loc: 377,
+        left: Some(218),
+        right: Some(220),
+        loc: 376,
     },
     LocGeoKdNode {
-        left: Some(220),
+        left: Some(219),
         right: None,
-        loc: 378,
+        loc: 377,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 382,
+        loc: 381,
     },
     LocGeoKdNode {
-        left: Some(222),
+        left: Some(221),
         right: None,
-        loc: 379,
+        loc: 378,
     },
     LocGeoKdNode {
         left: None,
@@ -1543,18 +1538,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 228,
     },
     LocGeoKdNode {
-        left: Some(224),
-        right: Some(230),
+        left: Some(223),
+        right: Some(229),
         loc: 219,
     },
     LocGeoKdNode {
-        left: Some(225),
-        right: Some(228),
+        left: Some(224),
+        right: Some(227),
         loc: 220,
     },
     LocGeoKdNode {
-        left: Some(226),
-        right: Some(227),
+        left: Some(225),
+        right: Some(226),
         loc: 225,
     },
     LocGeoKdNode {
@@ -1568,7 +1563,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 242,
     },
     LocGeoKdNode {
-        left: Some(229),
+        left: Some(228),
         right: None,
         loc: 221,
     },
@@ -1578,14 +1573,14 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 223,
     },
     LocGeoKdNode {
-        left: Some(231),
-        right: Some(233),
+        left: Some(230),
+        right: Some(232),
         loc: 216,
     },
     LocGeoKdNode {
-        left: Some(232),
+        left: Some(231),
         right: None,
-        loc: 381,
+        loc: 380,
     },
     LocGeoKdNode {
         left: None,
@@ -1593,7 +1588,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 226,
     },
     LocGeoKdNode {
-        left: Some(234),
+        left: Some(233),
         right: None,
         loc: 217,
     },
@@ -1603,39 +1598,39 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 218,
     },
     LocGeoKdNode {
-        left: Some(236),
-        right: Some(248),
+        left: Some(235),
+        right: Some(247),
         loc: 350,
     },
     LocGeoKdNode {
-        left: Some(237),
-        right: Some(243),
+        left: Some(236),
+        right: Some(242),
         loc: 349,
     },
     LocGeoKdNode {
+        left: Some(237),
+        right: Some(240),
+        loc: 372,
+    },
+    LocGeoKdNode {
         left: Some(238),
-        right: Some(241),
+        right: Some(239),
         loc: 373,
     },
     LocGeoKdNode {
-        left: Some(239),
-        right: Some(240),
-        loc: 374,
+        left: None,
+        right: None,
+        loc: 375,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 376,
+        loc: 370,
     },
     LocGeoKdNode {
-        left: None,
+        left: Some(241),
         right: None,
         loc: 371,
-    },
-    LocGeoKdNode {
-        left: Some(242),
-        right: None,
-        loc: 372,
     },
     LocGeoKdNode {
         left: None,
@@ -1643,12 +1638,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 348,
     },
     LocGeoKdNode {
-        left: Some(244),
-        right: Some(246),
+        left: Some(243),
+        right: Some(245),
         loc: 356,
     },
     LocGeoKdNode {
-        left: Some(245),
+        left: Some(244),
         right: None,
         loc: 359,
     },
@@ -1658,7 +1653,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 355,
     },
     LocGeoKdNode {
-        left: Some(247),
+        left: Some(246),
         right: None,
         loc: 353,
     },
@@ -1668,18 +1663,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 354,
     },
     LocGeoKdNode {
-        left: Some(249),
-        right: Some(255),
+        left: Some(248),
+        right: Some(254),
         loc: 343,
     },
     LocGeoKdNode {
-        left: Some(250),
-        right: Some(253),
+        left: Some(249),
+        right: Some(252),
         loc: 214,
     },
     LocGeoKdNode {
-        left: Some(251),
-        right: Some(252),
+        left: Some(250),
+        right: Some(251),
         loc: 346,
     },
     LocGeoKdNode {
@@ -1693,7 +1688,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 345,
     },
     LocGeoKdNode {
-        left: Some(254),
+        left: Some(253),
         right: None,
         loc: 212,
     },
@@ -1703,12 +1698,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 213,
     },
     LocGeoKdNode {
-        left: Some(256),
-        right: Some(258),
+        left: Some(255),
+        right: Some(257),
         loc: 344,
     },
     LocGeoKdNode {
-        left: Some(257),
+        left: Some(256),
         right: None,
         loc: 352,
     },
@@ -1718,7 +1713,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 351,
     },
     LocGeoKdNode {
-        left: Some(259),
+        left: Some(258),
         right: None,
         loc: 340,
     },
@@ -1728,28 +1723,28 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 341,
     },
     LocGeoKdNode {
-        left: Some(261),
-        right: Some(286),
+        left: Some(260),
+        right: Some(285),
         loc: 167,
     },
     LocGeoKdNode {
-        left: Some(262),
-        right: Some(274),
+        left: Some(261),
+        right: Some(273),
         loc: 206,
     },
     LocGeoKdNode {
-        left: Some(263),
-        right: Some(269),
+        left: Some(262),
+        right: Some(268),
         loc: 201,
     },
     LocGeoKdNode {
-        left: Some(264),
-        right: Some(267),
+        left: Some(263),
+        right: Some(266),
         loc: 203,
     },
     LocGeoKdNode {
-        left: Some(265),
-        right: Some(266),
+        left: Some(264),
+        right: Some(265),
         loc: 222,
     },
     LocGeoKdNode {
@@ -1763,22 +1758,22 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 202,
     },
     LocGeoKdNode {
-        left: Some(268),
+        left: Some(267),
         right: None,
         loc: 205,
     },
     LocGeoKdNode {
         left: None,
         right: None,
-        loc: 411,
+        loc: 410,
     },
     LocGeoKdNode {
-        left: Some(270),
-        right: Some(272),
+        left: Some(269),
+        right: Some(271),
         loc: 204,
     },
     LocGeoKdNode {
-        left: Some(271),
+        left: Some(270),
         right: None,
         loc: 199,
     },
@@ -1788,7 +1783,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 200,
     },
     LocGeoKdNode {
-        left: Some(273),
+        left: Some(272),
         right: None,
         loc: 180,
     },
@@ -1798,18 +1793,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 179,
     },
     LocGeoKdNode {
-        left: Some(275),
-        right: Some(281),
+        left: Some(274),
+        right: Some(280),
         loc: 174,
     },
     LocGeoKdNode {
-        left: Some(276),
-        right: Some(279),
+        left: Some(275),
+        right: Some(278),
         loc: 176,
     },
     LocGeoKdNode {
-        left: Some(277),
-        right: Some(278),
+        left: Some(276),
+        right: Some(277),
         loc: 208,
     },
     LocGeoKdNode {
@@ -1823,7 +1818,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 207,
     },
     LocGeoKdNode {
-        left: Some(280),
+        left: Some(279),
         right: None,
         loc: 177,
     },
@@ -1833,12 +1828,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 178,
     },
     LocGeoKdNode {
-        left: Some(282),
-        right: Some(284),
+        left: Some(281),
+        right: Some(283),
         loc: 170,
     },
     LocGeoKdNode {
-        left: Some(283),
+        left: Some(282),
         right: None,
         loc: 168,
     },
@@ -1848,7 +1843,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 169,
     },
     LocGeoKdNode {
-        left: Some(285),
+        left: Some(284),
         right: None,
         loc: 171,
     },
@@ -1858,23 +1853,23 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 175,
     },
     LocGeoKdNode {
-        left: Some(287),
-        right: Some(299),
+        left: Some(286),
+        right: Some(298),
         loc: 198,
     },
     LocGeoKdNode {
-        left: Some(288),
-        right: Some(294),
+        left: Some(287),
+        right: Some(293),
         loc: 342,
     },
     LocGeoKdNode {
-        left: Some(289),
-        right: Some(292),
+        left: Some(288),
+        right: Some(291),
         loc: 195,
     },
     LocGeoKdNode {
-        left: Some(290),
-        right: Some(291),
+        left: Some(289),
+        right: Some(290),
         loc: 194,
     },
     LocGeoKdNode {
@@ -1888,7 +1883,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 193,
     },
     LocGeoKdNode {
-        left: Some(293),
+        left: Some(292),
         right: None,
         loc: 196,
     },
@@ -1898,12 +1893,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 197,
     },
     LocGeoKdNode {
-        left: Some(295),
-        right: Some(297),
+        left: Some(294),
+        right: Some(296),
         loc: 189,
     },
     LocGeoKdNode {
-        left: Some(296),
+        left: Some(295),
         right: None,
         loc: 336,
     },
@@ -1913,7 +1908,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 192,
     },
     LocGeoKdNode {
-        left: Some(298),
+        left: Some(297),
         right: None,
         loc: 188,
     },
@@ -1923,17 +1918,17 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 187,
     },
     LocGeoKdNode {
-        left: Some(300),
-        right: Some(305),
+        left: Some(299),
+        right: Some(304),
         loc: 166,
     },
     LocGeoKdNode {
-        left: Some(301),
-        right: Some(303),
+        left: Some(300),
+        right: Some(302),
         loc: 182,
     },
     LocGeoKdNode {
-        left: Some(302),
+        left: Some(301),
         right: None,
         loc: 184,
     },
@@ -1943,7 +1938,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 183,
     },
     LocGeoKdNode {
-        left: Some(304),
+        left: Some(303),
         right: None,
         loc: 181,
     },
@@ -1953,12 +1948,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 172,
     },
     LocGeoKdNode {
-        left: Some(306),
-        right: Some(308),
+        left: Some(305),
+        right: Some(307),
         loc: 163,
     },
     LocGeoKdNode {
-        left: Some(307),
+        left: Some(306),
         right: None,
         loc: 186,
     },
@@ -1968,7 +1963,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 185,
     },
     LocGeoKdNode {
-        left: Some(309),
+        left: Some(308),
         right: None,
         loc: 164,
     },
@@ -1978,33 +1973,33 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 165,
     },
     LocGeoKdNode {
-        left: Some(311),
-        right: Some(362),
+        left: Some(310),
+        right: Some(361),
         loc: 124,
     },
     LocGeoKdNode {
-        left: Some(312),
-        right: Some(337),
+        left: Some(311),
+        right: Some(336),
         loc: 302,
     },
     LocGeoKdNode {
-        left: Some(313),
-        right: Some(325),
+        left: Some(312),
+        right: Some(324),
         loc: 324,
     },
     LocGeoKdNode {
-        left: Some(314),
-        right: Some(320),
+        left: Some(313),
+        right: Some(319),
         loc: 321,
     },
     LocGeoKdNode {
-        left: Some(315),
-        right: Some(318),
+        left: Some(314),
+        right: Some(317),
         loc: 317,
     },
     LocGeoKdNode {
-        left: Some(316),
-        right: Some(317),
+        left: Some(315),
+        right: Some(316),
         loc: 316,
     },
     LocGeoKdNode {
@@ -2018,7 +2013,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 318,
     },
     LocGeoKdNode {
-        left: Some(319),
+        left: Some(318),
         right: None,
         loc: 322,
     },
@@ -2028,12 +2023,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 323,
     },
     LocGeoKdNode {
-        left: Some(321),
-        right: Some(323),
+        left: Some(320),
+        right: Some(322),
         loc: 307,
     },
     LocGeoKdNode {
-        left: Some(322),
+        left: Some(321),
         right: None,
         loc: 309,
     },
@@ -2043,7 +2038,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 319,
     },
     LocGeoKdNode {
-        left: Some(324),
+        left: Some(323),
         right: None,
         loc: 306,
     },
@@ -2053,18 +2048,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 320,
     },
     LocGeoKdNode {
-        left: Some(326),
-        right: Some(332),
+        left: Some(325),
+        right: Some(331),
         loc: 332,
     },
     LocGeoKdNode {
-        left: Some(327),
-        right: Some(330),
+        left: Some(326),
+        right: Some(329),
         loc: 338,
     },
     LocGeoKdNode {
-        left: Some(328),
-        right: Some(329),
+        left: Some(327),
+        right: Some(328),
         loc: 326,
     },
     LocGeoKdNode {
@@ -2078,7 +2073,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 327,
     },
     LocGeoKdNode {
-        left: Some(331),
+        left: Some(330),
         right: None,
         loc: 333,
     },
@@ -2088,12 +2083,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 339,
     },
     LocGeoKdNode {
-        left: Some(333),
-        right: Some(335),
+        left: Some(332),
+        right: Some(334),
         loc: 304,
     },
     LocGeoKdNode {
-        left: Some(334),
+        left: Some(333),
         right: None,
         loc: 303,
     },
@@ -2103,7 +2098,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 305,
     },
     LocGeoKdNode {
-        left: Some(336),
+        left: Some(335),
         right: None,
         loc: 329,
     },
@@ -2113,23 +2108,23 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 328,
     },
     LocGeoKdNode {
-        left: Some(338),
-        right: Some(350),
+        left: Some(337),
+        right: Some(349),
         loc: 300,
     },
     LocGeoKdNode {
-        left: Some(339),
-        right: Some(345),
+        left: Some(338),
+        right: Some(344),
         loc: 134,
     },
     LocGeoKdNode {
-        left: Some(340),
-        right: Some(343),
+        left: Some(339),
+        right: Some(342),
         loc: 136,
     },
     LocGeoKdNode {
-        left: Some(341),
-        right: Some(342),
+        left: Some(340),
+        right: Some(341),
         loc: 135,
     },
     LocGeoKdNode {
@@ -2143,7 +2138,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 95,
     },
     LocGeoKdNode {
-        left: Some(344),
+        left: Some(343),
         right: None,
         loc: 298,
     },
@@ -2153,12 +2148,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 299,
     },
     LocGeoKdNode {
-        left: Some(346),
-        right: Some(348),
+        left: Some(345),
+        right: Some(347),
         loc: 101,
     },
     LocGeoKdNode {
-        left: Some(347),
+        left: Some(346),
         right: None,
         loc: 103,
     },
@@ -2168,7 +2163,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 102,
     },
     LocGeoKdNode {
-        left: Some(349),
+        left: Some(348),
         right: None,
         loc: 104,
     },
@@ -2178,18 +2173,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 121,
     },
     LocGeoKdNode {
-        left: Some(351),
-        right: Some(357),
+        left: Some(350),
+        right: Some(356),
         loc: 116,
     },
     LocGeoKdNode {
-        left: Some(352),
-        right: Some(355),
+        left: Some(351),
+        right: Some(354),
         loc: 137,
     },
     LocGeoKdNode {
-        left: Some(353),
-        right: Some(354),
+        left: Some(352),
+        right: Some(353),
         loc: 122,
     },
     LocGeoKdNode {
@@ -2203,7 +2198,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 115,
     },
     LocGeoKdNode {
-        left: Some(356),
+        left: Some(355),
         right: None,
         loc: 123,
     },
@@ -2213,12 +2208,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 138,
     },
     LocGeoKdNode {
-        left: Some(358),
-        right: Some(360),
+        left: Some(357),
+        right: Some(359),
         loc: 107,
     },
     LocGeoKdNode {
-        left: Some(359),
+        left: Some(358),
         right: None,
         loc: 106,
     },
@@ -2228,7 +2223,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 105,
     },
     LocGeoKdNode {
-        left: Some(361),
+        left: Some(360),
         right: None,
         loc: 109,
     },
@@ -2238,28 +2233,28 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 108,
     },
     LocGeoKdNode {
-        left: Some(363),
-        right: Some(388),
+        left: Some(362),
+        right: Some(387),
         loc: 155,
     },
     LocGeoKdNode {
-        left: Some(364),
-        right: Some(376),
+        left: Some(363),
+        right: Some(375),
         loc: 190,
     },
     LocGeoKdNode {
-        left: Some(365),
-        right: Some(371),
+        left: Some(364),
+        right: Some(370),
         loc: 330,
     },
     LocGeoKdNode {
-        left: Some(366),
-        right: Some(369),
+        left: Some(365),
+        right: Some(368),
         loc: 335,
     },
     LocGeoKdNode {
-        left: Some(367),
-        right: Some(368),
+        left: Some(366),
+        right: Some(367),
         loc: 334,
     },
     LocGeoKdNode {
@@ -2273,7 +2268,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 331,
     },
     LocGeoKdNode {
-        left: Some(370),
+        left: Some(369),
         right: None,
         loc: 158,
     },
@@ -2283,12 +2278,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 191,
     },
     LocGeoKdNode {
-        left: Some(372),
-        right: Some(374),
+        left: Some(371),
+        right: Some(373),
         loc: 141,
     },
     LocGeoKdNode {
-        left: Some(373),
+        left: Some(372),
         right: None,
         loc: 139,
     },
@@ -2298,7 +2293,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 140,
     },
     LocGeoKdNode {
-        left: Some(375),
+        left: Some(374),
         right: None,
         loc: 142,
     },
@@ -2308,18 +2303,18 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 143,
     },
     LocGeoKdNode {
-        left: Some(377),
-        right: Some(383),
+        left: Some(376),
+        right: Some(382),
         loc: 146,
     },
     LocGeoKdNode {
-        left: Some(378),
-        right: Some(381),
+        left: Some(377),
+        right: Some(380),
         loc: 157,
     },
     LocGeoKdNode {
-        left: Some(379),
-        right: Some(380),
+        left: Some(378),
+        right: Some(379),
         loc: 160,
     },
     LocGeoKdNode {
@@ -2333,7 +2328,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 159,
     },
     LocGeoKdNode {
-        left: Some(382),
+        left: Some(381),
         right: None,
         loc: 162,
     },
@@ -2343,12 +2338,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 173,
     },
     LocGeoKdNode {
-        left: Some(384),
-        right: Some(386),
+        left: Some(383),
+        right: Some(385),
         loc: 147,
     },
     LocGeoKdNode {
-        left: Some(385),
+        left: Some(384),
         right: None,
         loc: 144,
     },
@@ -2358,7 +2353,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 145,
     },
     LocGeoKdNode {
-        left: Some(387),
+        left: Some(386),
         right: None,
         loc: 148,
     },
@@ -2368,23 +2363,23 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 156,
     },
     LocGeoKdNode {
-        left: Some(389),
-        right: Some(401),
+        left: Some(388),
+        right: Some(400),
         loc: 128,
     },
     LocGeoKdNode {
-        left: Some(390),
-        right: Some(396),
+        left: Some(389),
+        right: Some(395),
         loc: 118,
     },
     LocGeoKdNode {
-        left: Some(391),
-        right: Some(394),
+        left: Some(390),
+        right: Some(393),
         loc: 130,
     },
     LocGeoKdNode {
-        left: Some(392),
-        right: Some(393),
+        left: Some(391),
+        right: Some(392),
         loc: 126,
     },
     LocGeoKdNode {
@@ -2398,7 +2393,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 117,
     },
     LocGeoKdNode {
-        left: Some(395),
+        left: Some(394),
         right: None,
         loc: 127,
     },
@@ -2408,12 +2403,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 131,
     },
     LocGeoKdNode {
-        left: Some(397),
-        right: Some(399),
+        left: Some(396),
+        right: Some(398),
         loc: 120,
     },
     LocGeoKdNode {
-        left: Some(398),
+        left: Some(397),
         right: None,
         loc: 111,
     },
@@ -2423,7 +2418,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 110,
     },
     LocGeoKdNode {
-        left: Some(400),
+        left: Some(399),
         right: None,
         loc: 112,
     },
@@ -2433,17 +2428,17 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 119,
     },
     LocGeoKdNode {
-        left: Some(402),
-        right: Some(407),
+        left: Some(401),
+        right: Some(406),
         loc: 152,
     },
     LocGeoKdNode {
-        left: Some(403),
-        right: Some(405),
+        left: Some(402),
+        right: Some(404),
         loc: 149,
     },
     LocGeoKdNode {
-        left: Some(404),
+        left: Some(403),
         right: None,
         loc: 132,
     },
@@ -2453,7 +2448,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 133,
     },
     LocGeoKdNode {
-        left: Some(406),
+        left: Some(405),
         right: None,
         loc: 151,
     },
@@ -2463,12 +2458,12 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 150,
     },
     LocGeoKdNode {
-        left: Some(408),
-        right: Some(410),
+        left: Some(407),
+        right: Some(409),
         loc: 114,
     },
     LocGeoKdNode {
-        left: Some(409),
+        left: Some(408),
         right: None,
         loc: 113,
     },
@@ -2478,7 +2473,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 129,
     },
     LocGeoKdNode {
-        left: Some(411),
+        left: Some(410),
         right: None,
         loc: 154,
     },
@@ -2488,7 +2483,7 @@ pub const LOC_GEO_KD_TREE: [LocGeoKdNode; 412] = [
         loc: 153,
     },
 ];
-pub const LOC_PIX_NODES: [LocPixNode; 412] = [
+pub const LOC_PIX_NODES: [LocPixNode; 411] = [
     LocPixNode {
         // idx: 0
         lat_e7: 523914430,
@@ -2766,10 +2761,10 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0002,
             },
             LocPixEdge {
-                to_loc: 410,
+                to_loc: 409,
                 from_pix: 13,
                 to_pix: 410,
-                dir: 0x0004,
+                dir: 0x0010,
             },
         ],
     },
@@ -3249,13 +3244,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 37,
                 from_pix: 36,
                 to_pix: 37,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 282,
                 from_pix: 36,
                 to_pix: 282,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -3413,7 +3408,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 287,
                 from_pix: 44,
                 to_pix: 287,
-                dir: 0x0004,
+                dir: 0x0010,
             },
         ],
     },
@@ -4465,13 +4460,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 96,
                 from_pix: 95,
                 to_pix: 96,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 135,
                 from_pix: 95,
                 to_pix: 135,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -4597,13 +4592,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 102,
                 from_pix: 101,
                 to_pix: 102,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 121,
                 from_pix: 101,
                 to_pix: 121,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -5289,13 +5284,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 135,
                 from_pix: 136,
                 to_pix: 135,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 298,
                 from_pix: 136,
                 to_pix: 298,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -5441,13 +5436,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 158,
                 from_pix: 143,
                 to_pix: 158,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 142,
                 from_pix: 143,
                 to_pix: 142,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -5513,7 +5508,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 145,
                 from_pix: 146,
                 to_pix: 145,
-                dir: 0x0004,
+                dir: 0x0010,
             },
         ],
     },
@@ -5961,7 +5956,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 179,
                 from_pix: 167,
                 to_pix: 179,
-                dir: 0x0004,
+                dir: 0x0010,
             },
         ],
     },
@@ -6225,13 +6220,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 179,
                 from_pix: 180,
                 to_pix: 179,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 182,
                 from_pix: 180,
                 to_pix: 182,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -6527,13 +6522,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 194,
                 from_pix: 193,
                 to_pix: 194,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 342,
                 from_pix: 193,
                 to_pix: 342,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -6762,7 +6757,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 411,
+                to_loc: 410,
                 from_pix: 204,
                 to_pix: 206,
                 dir: 0x0002,
@@ -6814,7 +6809,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 411,
+                to_loc: 410,
                 from_pix: 207,
                 to_pix: 206,
                 dir: 0x0002,
@@ -6921,13 +6916,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 210,
                 from_pix: 212,
                 to_pix: 210,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 345,
                 from_pix: 212,
                 to_pix: 345,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -7013,13 +7008,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 217,
                 from_pix: 216,
                 to_pix: 217,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 381,
+                to_loc: 380,
                 from_pix: 216,
                 to_pix: 381,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -7288,7 +7283,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 382,
+                to_loc: 381,
                 from_pix: 230,
                 to_pix: 382,
                 dir: 0x0002,
@@ -7392,7 +7387,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 383,
+                to_loc: 382,
                 from_pix: 235,
                 to_pix: 383,
                 dir: 0x0020,
@@ -7745,13 +7740,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 253,
                 from_pix: 252,
                 to_pix: 253,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 391,
+                to_loc: 390,
                 from_pix: 252,
                 to_pix: 391,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -7946,16 +7941,16 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0002,
             },
             LocPixEdge {
-                to_loc: 407,
+                to_loc: 406,
                 from_pix: 262,
                 to_pix: 407,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 408,
+                to_loc: 407,
                 from_pix: 262,
                 to_pix: 408,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -8001,7 +7996,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 265,
                 from_pix: 264,
                 to_pix: 265,
-                dir: 0x0004,
+                dir: 0x0010,
             },
         ],
     },
@@ -8032,7 +8027,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 402,
+                to_loc: 401,
                 from_pix: 266,
                 to_pix: 402,
                 dir: 0x0001,
@@ -8050,7 +8045,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 403,
+                to_loc: 402,
                 from_pix: 266,
                 to_pix: 403,
                 dir: 0x0020,
@@ -8133,19 +8128,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 271,
                 from_pix: 270,
                 to_pix: 271,
-                dir: 0x0002,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 269,
                 from_pix: 270,
                 to_pix: 269,
-                dir: 0x0004,
+                dir: 0x0020,
             },
             LocPixEdge {
                 to_loc: 268,
                 from_pix: 270,
                 to_pix: 268,
-                dir: 0x0008,
+                dir: 0x0002,
             },
         ],
     },
@@ -8211,13 +8206,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 275,
                 from_pix: 273,
                 to_pix: 275,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 270,
                 from_pix: 273,
                 to_pix: 270,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -8717,7 +8712,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 294,
                 from_pix: 295,
                 to_pix: 294,
-                dir: 0x0004,
+                dir: 0x0010,
             },
         ],
     },
@@ -9850,7 +9845,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 372,
+                to_loc: 371,
                 from_pix: 347,
                 to_pix: 372,
                 dir: 0x0001,
@@ -9876,7 +9871,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 373,
+                to_loc: 372,
                 from_pix: 348,
                 to_pix: 373,
                 dir: 0x0002,
@@ -10031,19 +10026,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 353,
                 from_pix: 355,
                 to_pix: 353,
-                dir: 0x0002,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 354,
                 from_pix: 355,
                 to_pix: 354,
-                dir: 0x0004,
+                dir: 0x0002,
             },
             LocPixEdge {
                 to_loc: 360,
                 from_pix: 355,
                 to_pix: 360,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -10149,13 +10144,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 359,
                 from_pix: 360,
                 to_pix: 359,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 363,
                 from_pix: 360,
                 to_pix: 363,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -10201,13 +10196,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 to_loc: 361,
                 from_pix: 362,
                 to_pix: 361,
-                dir: 0x0004,
+                dir: 0x0010,
             },
             LocPixEdge {
                 to_loc: 276,
                 from_pix: 362,
                 to_pix: 276,
-                dir: 0x0008,
+                dir: 0x0020,
             },
         ],
     },
@@ -10348,7 +10343,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0002,
             },
             LocPixEdge {
-                to_loc: 400,
+                to_loc: 399,
                 from_pix: 368,
                 to_pix: 400,
                 dir: 0x0010,
@@ -10362,19 +10357,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 399,
+                to_loc: 398,
                 from_pix: 369,
                 to_pix: 399,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 370,
+                to_loc: 374,
                 from_pix: 369,
                 to_pix: 370,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 398,
+                to_loc: 397,
                 from_pix: 369,
                 to_pix: 398,
                 dir: 0x0001,
@@ -10389,18 +10384,98 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
     },
     LocPixNode {
         // idx: 370
-        lat_e7: 525068460,
-        lng_e7: 133329010,
+        lat_e7: 525127470,
+        lng_e7: 133403370,
         modes: 0b10,
         edges: &[
             LocPixEdge {
                 to_loc: 371,
+                from_pix: 371,
+                to_pix: 372,
+                dir: 0x0001,
+            },
+            LocPixEdge {
+                to_loc: 374,
+                from_pix: 371,
+                to_pix: 370,
+                dir: 0x0002,
+            },
+        ],
+    },
+    LocPixNode {
+        // idx: 371
+        lat_e7: 525180920,
+        lng_e7: 133420950,
+        modes: 0b10,
+        edges: &[
+            LocPixEdge {
+                to_loc: 347,
+                from_pix: 372,
+                to_pix: 347,
+                dir: 0x0001,
+            },
+            LocPixEdge {
+                to_loc: 370,
+                from_pix: 372,
+                to_pix: 371,
+                dir: 0x0002,
+            },
+        ],
+    },
+    LocPixNode {
+        // idx: 372
+        lat_e7: 525139570,
+        lng_e7: 133362440,
+        modes: 0b01,
+        edges: &[
+            LocPixEdge {
+                to_loc: 348,
+                from_pix: 373,
+                to_pix: 348,
+                dir: 0x0001,
+            },
+            LocPixEdge {
+                to_loc: 373,
+                from_pix: 373,
+                to_pix: 374,
+                dir: 0x0002,
+            },
+        ],
+    },
+    LocPixNode {
+        // idx: 373
+        lat_e7: 525111090,
+        lng_e7: 133349150,
+        modes: 0b01,
+        edges: &[
+            LocPixEdge {
+                to_loc: 374,
+                from_pix: 374,
+                to_pix: 375,
+                dir: 0x0001,
+            },
+            LocPixEdge {
+                to_loc: 372,
+                from_pix: 374,
+                to_pix: 373,
+                dir: 0x0002,
+            },
+        ],
+    },
+    LocPixNode {
+        // idx: 374
+        lat_e7: 525069210,
+        lng_e7: 133327069,
+        modes: 0b11,
+        edges: &[
+            LocPixEdge {
+                to_loc: 370,
                 from_pix: 370,
                 to_pix: 371,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 397,
+                to_loc: 396,
                 from_pix: 370,
                 to_pix: 397,
                 dir: 0x0002,
@@ -10413,190 +10488,90 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
             },
             LocPixEdge {
                 to_loc: 375,
-                from_pix: 370,
-                to_pix: 375,
+                from_pix: 375,
+                to_pix: 376,
                 dir: 0x0020,
-            },
-        ],
-    },
-    LocPixNode {
-        // idx: 371
-        lat_e7: 525127470,
-        lng_e7: 133403370,
-        modes: 0b10,
-        edges: &[
-            LocPixEdge {
-                to_loc: 372,
-                from_pix: 371,
-                to_pix: 372,
-                dir: 0x0001,
-            },
-            LocPixEdge {
-                to_loc: 370,
-                from_pix: 371,
-                to_pix: 370,
-                dir: 0x0002,
-            },
-        ],
-    },
-    LocPixNode {
-        // idx: 372
-        lat_e7: 525180920,
-        lng_e7: 133420950,
-        modes: 0b10,
-        edges: &[
-            LocPixEdge {
-                to_loc: 347,
-                from_pix: 372,
-                to_pix: 347,
-                dir: 0x0001,
-            },
-            LocPixEdge {
-                to_loc: 371,
-                from_pix: 372,
-                to_pix: 371,
-                dir: 0x0002,
-            },
-        ],
-    },
-    LocPixNode {
-        // idx: 373
-        lat_e7: 525139570,
-        lng_e7: 133362440,
-        modes: 0b01,
-        edges: &[
-            LocPixEdge {
-                to_loc: 348,
-                from_pix: 373,
-                to_pix: 348,
-                dir: 0x0001,
-            },
-            LocPixEdge {
-                to_loc: 374,
-                from_pix: 373,
-                to_pix: 374,
-                dir: 0x0002,
-            },
-        ],
-    },
-    LocPixNode {
-        // idx: 374
-        lat_e7: 525111090,
-        lng_e7: 133349150,
-        modes: 0b01,
-        edges: &[
-            LocPixEdge {
-                to_loc: 375,
-                from_pix: 374,
-                to_pix: 375,
-                dir: 0x0001,
             },
             LocPixEdge {
                 to_loc: 373,
-                from_pix: 374,
-                to_pix: 373,
-                dir: 0x0002,
+                from_pix: 375,
+                to_pix: 374,
+                dir: 0x0100,
+            },
+            LocPixEdge {
+                to_loc: 385,
+                from_pix: 375,
+                to_pix: 386,
+                dir: 0x0200,
             },
         ],
     },
     LocPixNode {
         // idx: 375
-        lat_e7: 525069190,
-        lng_e7: 133327110,
-        modes: 0b11,
-        edges: &[
-            LocPixEdge {
-                to_loc: 374,
-                from_pix: 375,
-                to_pix: 374,
-                dir: 0x0001,
-            },
-            LocPixEdge {
-                to_loc: 386,
-                from_pix: 375,
-                to_pix: 386,
-                dir: 0x0002,
-            },
-            LocPixEdge {
-                to_loc: 370,
-                from_pix: 375,
-                to_pix: 370,
-                dir: 0x0010,
-            },
-            LocPixEdge {
-                to_loc: 376,
-                from_pix: 375,
-                to_pix: 376,
-                dir: 0x0020,
-            },
-        ],
-    },
-    LocPixNode {
-        // idx: 376
         lat_e7: 525115840,
         lng_e7: 133225800,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 377,
+                to_loc: 376,
                 from_pix: 376,
                 to_pix: 377,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 375,
+                to_loc: 374,
                 from_pix: 376,
                 to_pix: 375,
+                dir: 0x0002,
+            },
+        ],
+    },
+    LocPixNode {
+        // idx: 376
+        lat_e7: 525118269,
+        lng_e7: 133094200,
+        modes: 0b10,
+        edges: &[
+            LocPixEdge {
+                to_loc: 377,
+                from_pix: 377,
+                to_pix: 378,
+                dir: 0x0001,
+            },
+            LocPixEdge {
+                to_loc: 375,
+                from_pix: 377,
+                to_pix: 376,
                 dir: 0x0002,
             },
         ],
     },
     LocPixNode {
         // idx: 377
-        lat_e7: 525118269,
-        lng_e7: 133094200,
-        modes: 0b10,
-        edges: &[
-            LocPixEdge {
-                to_loc: 378,
-                from_pix: 377,
-                to_pix: 378,
-                dir: 0x0001,
-            },
-            LocPixEdge {
-                to_loc: 376,
-                from_pix: 377,
-                to_pix: 376,
-                dir: 0x0002,
-            },
-        ],
-    },
-    LocPixNode {
-        // idx: 378
         lat_e7: 525115390,
         lng_e7: 133053390,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 379,
+                to_loc: 378,
                 from_pix: 378,
                 to_pix: 379,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 384,
+                to_loc: 383,
                 from_pix: 378,
                 to_pix: 384,
                 dir: 0x0002,
             },
             LocPixEdge {
-                to_loc: 377,
+                to_loc: 376,
                 from_pix: 378,
                 to_pix: 377,
                 dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 382,
+                to_loc: 381,
                 from_pix: 378,
                 to_pix: 382,
                 dir: 0x0020,
@@ -10604,19 +10579,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 379
+        // idx: 378
         lat_e7: 525171570,
         lng_e7: 133072170,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 380,
+                to_loc: 379,
                 from_pix: 379,
                 to_pix: 380,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 378,
+                to_loc: 377,
                 from_pix: 379,
                 to_pix: 378,
                 dir: 0x0002,
@@ -10624,19 +10599,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 380
+        // idx: 379
         lat_e7: 525257870,
         lng_e7: 133057070,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 381,
+                to_loc: 380,
                 from_pix: 380,
                 to_pix: 381,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 379,
+                to_loc: 378,
                 from_pix: 380,
                 to_pix: 379,
                 dir: 0x0002,
@@ -10644,7 +10619,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 381
+        // idx: 380
         lat_e7: 525280720,
         lng_e7: 133023250,
         modes: 0b10,
@@ -10656,7 +10631,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 380,
+                to_loc: 379,
                 from_pix: 381,
                 to_pix: 380,
                 dir: 0x0002,
@@ -10664,7 +10639,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 382
+        // idx: 381
         lat_e7: 525109730,
         lng_e7: 132974640,
         modes: 0b10,
@@ -10676,7 +10651,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 378,
+                to_loc: 377,
                 from_pix: 382,
                 to_pix: 378,
                 dir: 0x0002,
@@ -10684,13 +10659,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 383
+        // idx: 382
         lat_e7: 525027940,
         lng_e7: 132933450,
         modes: 0b01,
         edges: &[
             LocPixEdge {
-                to_loc: 385,
+                to_loc: 384,
                 from_pix: 383,
                 to_pix: 385,
                 dir: 0x0001,
@@ -10704,19 +10679,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 384
+        // idx: 383
         lat_e7: 525064149,
         lng_e7: 133067770,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 387,
+                to_loc: 386,
                 from_pix: 384,
                 to_pix: 387,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 378,
+                to_loc: 377,
                 from_pix: 384,
                 to_pix: 378,
                 dir: 0x0002,
@@ -10724,19 +10699,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 385
+        // idx: 384
         lat_e7: 525047340,
         lng_e7: 133038640,
         modes: 0b01,
         edges: &[
             LocPixEdge {
-                to_loc: 386,
+                to_loc: 385,
                 from_pix: 385,
                 to_pix: 386,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 383,
+                to_loc: 382,
                 from_pix: 385,
                 to_pix: 383,
                 dir: 0x0002,
@@ -10744,19 +10719,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 386
+        // idx: 385
         lat_e7: 525052200,
         lng_e7: 133190020,
         modes: 0b01,
         edges: &[
             LocPixEdge {
-                to_loc: 375,
+                to_loc: 374,
                 from_pix: 386,
                 to_pix: 375,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 385,
+                to_loc: 384,
                 from_pix: 386,
                 to_pix: 385,
                 dir: 0x0002,
@@ -10764,19 +10739,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 387
+        // idx: 386
         lat_e7: 525032850,
         lng_e7: 133076990,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 388,
+                to_loc: 387,
                 from_pix: 387,
                 to_pix: 388,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 384,
+                to_loc: 383,
                 from_pix: 387,
                 to_pix: 384,
                 dir: 0x0002,
@@ -10784,19 +10759,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 388
+        // idx: 387
         lat_e7: 525000870,
         lng_e7: 133073520,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 389,
+                to_loc: 388,
                 from_pix: 388,
                 to_pix: 389,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 387,
+                to_loc: 386,
                 from_pix: 388,
                 to_pix: 387,
                 dir: 0x0002,
@@ -10804,19 +10779,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 389
+        // idx: 388
         lat_e7: 524935700,
         lng_e7: 133100850,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 390,
+                to_loc: 389,
                 from_pix: 389,
                 to_pix: 390,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 388,
+                to_loc: 387,
                 from_pix: 389,
                 to_pix: 388,
                 dir: 0x0002,
@@ -10824,19 +10799,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 390
+        // idx: 389
         lat_e7: 524925640,
         lng_e7: 133113119,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 392,
+                to_loc: 391,
                 from_pix: 390,
                 to_pix: 392,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 389,
+                to_loc: 388,
                 from_pix: 390,
                 to_pix: 389,
                 dir: 0x0002,
@@ -10844,7 +10819,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 391
+        // idx: 390
         lat_e7: 524855680,
         lng_e7: 133137610,
         modes: 0b10,
@@ -10856,7 +10831,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 392,
+                to_loc: 391,
                 from_pix: 391,
                 to_pix: 392,
                 dir: 0x0002,
@@ -10864,31 +10839,31 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 392
+        // idx: 391
         lat_e7: 524903610,
         lng_e7: 133144090,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 405,
+                to_loc: 404,
                 from_pix: 392,
                 to_pix: 405,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 390,
+                to_loc: 389,
                 from_pix: 392,
                 to_pix: 390,
                 dir: 0x0002,
             },
             LocPixEdge {
-                to_loc: 391,
+                to_loc: 390,
                 from_pix: 392,
                 to_pix: 391,
                 dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 393,
+                to_loc: 392,
                 from_pix: 392,
                 to_pix: 393,
                 dir: 0x0020,
@@ -10896,19 +10871,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 393
+        // idx: 392
         lat_e7: 524938300,
         lng_e7: 133240540,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 394,
+                to_loc: 393,
                 from_pix: 393,
                 to_pix: 394,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 392,
+                to_loc: 391,
                 from_pix: 393,
                 to_pix: 392,
                 dir: 0x0002,
@@ -10916,31 +10891,31 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 394
+        // idx: 393
         lat_e7: 524965810,
         lng_e7: 133306159,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 395,
+                to_loc: 394,
                 from_pix: 394,
                 to_pix: 395,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 404,
+                to_loc: 403,
                 from_pix: 394,
                 to_pix: 404,
                 dir: 0x0002,
             },
             LocPixEdge {
-                to_loc: 398,
+                to_loc: 397,
                 from_pix: 394,
                 to_pix: 398,
                 dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 393,
+                to_loc: 392,
                 from_pix: 394,
                 to_pix: 393,
                 dir: 0x0020,
@@ -10948,19 +10923,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 395
+        // idx: 394
         lat_e7: 525001540,
         lng_e7: 133308000,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 397,
+                to_loc: 396,
                 from_pix: 395,
                 to_pix: 397,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 394,
+                to_loc: 393,
                 from_pix: 395,
                 to_pix: 394,
                 dir: 0x0002,
@@ -10968,43 +10943,43 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 396
+        // idx: 395
         lat_e7: 525027390,
         lng_e7: 133262300,
         modes: 0b10,
         edges: &[LocPixEdge {
-            to_loc: 397,
+            to_loc: 396,
             from_pix: 396,
             to_pix: 397,
             dir: 0x0001,
         }],
     },
     LocPixNode {
-        // idx: 397
+        // idx: 396
         lat_e7: 525037630,
         lng_e7: 133314160,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 370,
+                to_loc: 374,
                 from_pix: 397,
                 to_pix: 370,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 395,
+                to_loc: 394,
                 from_pix: 397,
                 to_pix: 395,
                 dir: 0x0002,
             },
             LocPixEdge {
-                to_loc: 399,
+                to_loc: 398,
                 from_pix: 397,
                 to_pix: 399,
                 dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 396,
+                to_loc: 395,
                 from_pix: 397,
                 to_pix: 396,
                 dir: 0x0020,
@@ -11012,7 +10987,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 398
+        // idx: 397
         lat_e7: 525004459,
         lng_e7: 133364590,
         modes: 0b10,
@@ -11024,7 +10999,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 394,
+                to_loc: 393,
                 from_pix: 398,
                 to_pix: 394,
                 dir: 0x0002,
@@ -11032,13 +11007,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 399
+        // idx: 398
         lat_e7: 525040130,
         lng_e7: 133371380,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 397,
+                to_loc: 396,
                 from_pix: 399,
                 to_pix: 397,
                 dir: 0x0001,
@@ -11052,7 +11027,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 400
+        // idx: 399
         lat_e7: 524979380,
         lng_e7: 133486520,
         modes: 0b10,
@@ -11064,7 +11039,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 401,
+                to_loc: 400,
                 from_pix: 400,
                 to_pix: 401,
                 dir: 0x0002,
@@ -11072,19 +11047,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 401
+        // idx: 400
         lat_e7: 524961680,
         lng_e7: 133432640,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 402,
+                to_loc: 401,
                 from_pix: 401,
                 to_pix: 402,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 400,
+                to_loc: 399,
                 from_pix: 401,
                 to_pix: 400,
                 dir: 0x0002,
@@ -11092,7 +11067,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 402
+        // idx: 401
         lat_e7: 524925530,
         lng_e7: 133418780,
         modes: 0b10,
@@ -11104,7 +11079,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 401,
+                to_loc: 400,
                 from_pix: 402,
                 to_pix: 401,
                 dir: 0x0002,
@@ -11112,7 +11087,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 403
+        // idx: 402
         lat_e7: 524880790,
         lng_e7: 133357820,
         modes: 0b10,
@@ -11124,7 +11099,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 406,
+                to_loc: 405,
                 from_pix: 403,
                 to_pix: 406,
                 dir: 0x0002,
@@ -11132,19 +11107,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 404
+        // idx: 403
         lat_e7: 524919700,
         lng_e7: 133310840,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 406,
+                to_loc: 405,
                 from_pix: 404,
                 to_pix: 406,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 394,
+                to_loc: 393,
                 from_pix: 404,
                 to_pix: 394,
                 dir: 0x0002,
@@ -11152,19 +11127,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 405
+        // idx: 404
         lat_e7: 524864770,
         lng_e7: 133205480,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 392,
+                to_loc: 391,
                 from_pix: 405,
                 to_pix: 392,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 406,
+                to_loc: 405,
                 from_pix: 405,
                 to_pix: 406,
                 dir: 0x0002,
@@ -11172,31 +11147,31 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 406
+        // idx: 405
         lat_e7: 524870440,
         lng_e7: 133313530,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 404,
+                to_loc: 403,
                 from_pix: 406,
                 to_pix: 404,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 405,
+                to_loc: 404,
                 from_pix: 406,
                 to_pix: 405,
                 dir: 0x0010,
             },
             LocPixEdge {
-                to_loc: 403,
+                to_loc: 402,
                 from_pix: 406,
                 to_pix: 403,
                 dir: 0x0020,
             },
             LocPixEdge {
-                to_loc: 407,
+                to_loc: 406,
                 from_pix: 406,
                 to_pix: 407,
                 dir: 0x0002,
@@ -11204,7 +11179,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 407
+        // idx: 406
         lat_e7: 524828830,
         lng_e7: 133303520,
         modes: 0b10,
@@ -11216,7 +11191,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 406,
+                to_loc: 405,
                 from_pix: 407,
                 to_pix: 406,
                 dir: 0x0002,
@@ -11224,13 +11199,13 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 408
+        // idx: 407
         lat_e7: 524714380,
         lng_e7: 133286750,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 409,
+                to_loc: 408,
                 from_pix: 408,
                 to_pix: 409,
                 dir: 0x0001,
@@ -11244,19 +11219,19 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 409
+        // idx: 408
         lat_e7: 524650020,
         lng_e7: 133284050,
         modes: 0b10,
         edges: &[
             LocPixEdge {
-                to_loc: 410,
+                to_loc: 409,
                 from_pix: 409,
                 to_pix: 410,
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 408,
+                to_loc: 407,
                 from_pix: 409,
                 to_pix: 408,
                 dir: 0x0002,
@@ -11264,7 +11239,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 410
+        // idx: 409
         lat_e7: 524611820,
         lng_e7: 133248360,
         modes: 0b10,
@@ -11276,7 +11251,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
                 dir: 0x0001,
             },
             LocPixEdge {
-                to_loc: 409,
+                to_loc: 408,
                 from_pix: 410,
                 to_pix: 409,
                 dir: 0x0002,
@@ -11284,7 +11259,7 @@ pub const LOC_PIX_NODES: [LocPixNode; 412] = [
         ],
     },
     LocPixNode {
-        // idx: 411
+        // idx: 410
         lat_e7: 525881230,
         lng_e7: 132898790,
         modes: 0b01,
