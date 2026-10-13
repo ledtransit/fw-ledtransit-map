@@ -62,7 +62,9 @@ pub mod client_proto {
     include!(concat!(env!("OUT_DIR"), "/ledtransit_client.rs"));
 }
 
-const TCP_RX_BUF_SIZE: usize = 4 * 1024;
+// The transit data (about 15 KB) arrives in a few round trips: with 4 KB it
+// took about 70 ms longer. Taken from the main stack (12 KB left at its peak)
+const TCP_RX_BUF_SIZE: usize = 8 * 1024;
 // A whole HTTP request (in one TLS record, see tls::BufferedTlsSocket): else
 // the rest of it waits for the server to acknowledge the first part
 const TCP_TX_BUF_SIZE: usize = 1536;
