@@ -9,7 +9,7 @@ use edge_net::http::{
         server::{Connection, Handler},
     },
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, with_timeout};
 use embedded_io_async::{Read, Write};
 use esp_radio::wifi::{AuthenticationMethod, Config, scan::ScanConfig};
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,7 @@ use crate::{
 };
 
 const MAX_SCANNED_NETWORKS: usize = 16;
+const RESPONSE_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct HttpHandler {
     controller: &'static SharedWifiController,
@@ -195,14 +196,13 @@ where
 
     if controller.lock().await.is_connected() {
         info!("Already connected");
-        send_response(conn, 200, "OK", &[], None).await?;
-        wifi_net::finish_provisioning();
-        return Ok(());
+        return respond_connected(conn).await;
     }
 
-    // Fade out first, so the lag of the blocking WiFi connect doesn't show
+    // Fades out while connecting, without waiting for it: the transit data
+    // takes longer to arrive, and the painter waits for the fade before its
+    // first frame
     leds::set_pixels(LedPixels::FadeOut).await;
-    leds::wait_pixels_animation_complete().await;
     leds::set_status(LedStatus::ConnectingWifi);
 
     let set_config_result = controller
@@ -225,7 +225,6 @@ where
     }
 
     info!("WiFi started");
-    send_response(conn, 200, "OK", &[], None).await?;
     app_settings::persist::update_settings(move |set| {
         set.wifi_ssid = Some(heapless::String::try_from(request.ssid.as_str()).unwrap_or_default());
         set.wifi_password =
@@ -233,9 +232,27 @@ where
         set.prov_token = Some(request.token.clone());
     })
     .await;
-    Timer::after(Duration::from_secs(8)).await;
+    // The gateway connection starts meanwhile, while the page gets its answer
+    wifi_net::setup_station_connected();
+    respond_connected(conn).await
+}
+
+/// Answers the page, then closes the setup network: once the page
+/// acknowledged the answer (the phone may take a second, dozing), or after a
+/// while without.
+async fn respond_connected<T, const N: usize>(
+    conn: &mut Connection<'_, T, N>,
+) -> Result<(), Error<T::Error>>
+where
+    T: Read + Write,
+{
+    let result = with_timeout(RESPONSE_DELIVERY_TIMEOUT, async {
+        send_response(conn, 200, "OK", &[], None).await?;
+        conn.flush().await
+    })
+    .await;
     wifi_net::finish_provisioning();
-    Ok(())
+    result.unwrap_or(Err(Error::ConnectionClosed))
 }
 
 async fn read_connect_request<T, const N: usize>(

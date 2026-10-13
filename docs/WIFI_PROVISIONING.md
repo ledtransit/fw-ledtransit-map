@@ -103,8 +103,9 @@ All requests go to the map at `192.168.4.1`
   so it can't submit credentials through the owner's browser.
 - `401` without a provisioning token.
 - `500` if the map can't connect (status LED alternating yellow and red).
-- `200` once connected. The map then saves the credentials and the token,
-  waits 8 seconds for the page to finish, and switches to station only.
+- `200` once connected. The map saves the credentials and the token and
+  connects to the server right away. It closes its own network once the page
+  received the answer (at most 5 seconds), staying connected to the WiFi.
 
 ## Claiming
 

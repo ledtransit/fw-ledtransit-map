@@ -2074,6 +2074,7 @@ dependencies = [
  "esp-radio",
  "esp-rtos",
  "esp-storage",
+ "esp-wifi-sys-esp32c3",
  "heapless 0.9.3",
  "mbedtls-rs",
  "nb 1.1.0",

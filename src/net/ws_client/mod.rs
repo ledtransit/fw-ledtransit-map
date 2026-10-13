@@ -63,7 +63,9 @@ pub mod client_proto {
 }
 
 const TCP_RX_BUF_SIZE: usize = 4 * 1024;
-const TCP_TX_BUF_SIZE: usize = 512;
+// A whole HTTP request (in one TLS record, see tls::BufferedTlsSocket): else
+// the rest of it waits for the server to acknowledge the first part
+const TCP_TX_BUF_SIZE: usize = 1536;
 const TCP_BUF_POOL_SIZE: usize = 1;
 
 const HTTP_MAX_NUM_HEADERS: usize = 32;
@@ -203,10 +205,10 @@ async fn ws_client_task(
         sta_stack.wait_config_up().await;
         profiling::once!(ip_configured);
 
-        // Provisioning still finishing: the link is about to drop, a
-        // connection started over it now would fail
+        // Provisioning still finishing: the credentials and token aren't
+        // saved yet, or the link is about to drop
         if wifi_net::is_provisioning() {
-            Timer::after(Duration::from_millis(250)).await;
+            wifi_net::wait_provisioning_finished().await;
             continue;
         }
         info!("Connecting to gateway");

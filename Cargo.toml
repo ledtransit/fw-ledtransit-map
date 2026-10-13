@@ -36,6 +36,9 @@ esp-radio = { version = "=1.0.0-beta.1", features = [
   "wifi",
   "defmt",
 ] }
+# The WiFi driver's functions esp-radio doesn't wrap (the version esp-radio
+# links)
+esp-wifi-sys = { package = "esp-wifi-sys-esp32c3", version = "=0.3.0" }
 smoltcp = { version = "0.13.1", default-features = false, features = [
   "proto-dhcpv4",
   "proto-dns",

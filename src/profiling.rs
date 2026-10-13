@@ -77,16 +77,22 @@ pub fn record(
     point: fn(&mut DeviceProfiling) -> &mut Option<ProfilingPoint>,
     at: ProfilingPoint,
 ) {
+    let mut recorded = false;
     update(|profiling| {
         let point = point(profiling);
         if point.is_none() {
-            debug!(
-                "Profiling: {} at {} us ({} us stalled, {} B heap free)",
-                name, at.micros_since_boot, at.executor_stalled_micros, at.free_heap_bytes
-            );
             *point = Some(at);
+            recorded = true;
         }
     });
+    // Logged outside the critical section: the logger takes its own lock,
+    // which isn't reentrant
+    if recorded {
+        debug!(
+            "Profiling: {} at {} us ({} us stalled, {} B heap free)",
+            name, at.micros_since_boot, at.executor_stalled_micros, at.free_heap_bytes
+        );
+    }
 }
 
 /// Updates the profiling, until it finished: once the first transit data is

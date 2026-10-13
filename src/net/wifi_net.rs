@@ -22,6 +22,7 @@ use esp_radio::wifi::{
     event::{EventInfo, EventSubscriber},
     sta::StationConfig,
 };
+use esp_wifi_sys::include::{esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA};
 use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion, X509};
 
 use crate::{
@@ -60,15 +61,29 @@ enum WifiNetEvent {
 
 static WIFI_NET_SIGNAL: Signal<CriticalSectionRawMutex, WifiNetEvent> = Signal::new();
 
-// Set from the start of provisioning until the WiFi is connected again after
-// it: finishing it reconfigures the WiFi (station only), which drops the link
-// the station connected over during provisioning
+// Set from the start of provisioning until the station connected with the
+// credentials saved, and while the WiFi restarts as station only (if closing
+// the setup network failed), which drops the station's link
 static PROVISIONING: AtomicBool = AtomicBool::new(false);
+static PROVISIONING_FINISHED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-/// Whether provisioning is still going on: the station's link (if up) is about
-/// to drop, so nothing should connect over it yet.
+/// Whether provisioning is still going on: the credentials aren't saved yet,
+/// or the station's link (if up) is about to drop, so nothing should connect
+/// over it yet.
 pub fn is_provisioning() -> bool {
     PROVISIONING.load(Ordering::Relaxed)
+}
+
+/// Waits until provisioning (maybe) finished: check with `is_provisioning`.
+pub async fn wait_provisioning_finished() {
+    PROVISIONING_FINISHED.wait().await
+}
+
+fn set_provisioning(provisioning: bool) {
+    PROVISIONING.store(provisioning, Ordering::Relaxed);
+    if !provisioning {
+        PROVISIONING_FINISHED.signal(());
+    }
 }
 
 pub async fn spawn(
@@ -179,6 +194,13 @@ pub async fn start_provisioning() {
     leds::set_pixels(LedPixels::DemoMode).await;
 }
 
+/// The station connected during setup, with the credentials and token saved:
+/// the gateway connection may start over it, while the setup network is
+/// still open. It stays connected when that closes.
+pub fn setup_station_connected() {
+    set_provisioning(false);
+}
+
 pub fn finish_provisioning() {
     WIFI_NET_SIGNAL.signal(WifiNetEvent::FinishProvisioning);
 }
@@ -251,16 +273,7 @@ async fn wifi_net_task(
     loop {
         match WIFI_NET_SIGNAL.wait().await {
             WifiNetEvent::StartProvisioning => start_setup_network(controller, ap_ssid).await,
-            WifiNetEvent::FinishProvisioning => {
-                info!("Finishing WiFi provisioning mode");
-                let settings = app_settings::persist::get_settings().await;
-                controller
-                    .lock()
-                    .await
-                    .set_config(&Config::Station(stored_station_config(&settings)))
-                    .expect("Failed to set STA config");
-                connect_ap();
-            }
+            WifiNetEvent::FinishProvisioning => finish_setup_network(controller).await,
             WifiNetEvent::ConnectToAp => {
                 if connect_to_ap(controller).await {
                     continue;
@@ -279,7 +292,7 @@ async fn start_setup_network(
     ap_ssid: &'static heapless::String<32>,
 ) {
     info!("Starting WiFi provisioning mode");
-    PROVISIONING.store(true, Ordering::Relaxed);
+    set_provisioning(true);
     leds::set_status(LedStatus::Pairing);
 
     if controller.lock().await.is_connected() {
@@ -299,6 +312,45 @@ async fn start_setup_network(
         .expect("Failed to set AP+STA config");
 }
 
+/// Closes the setup network. The station, connected during setup, stays
+/// connected.
+async fn finish_setup_network(controller: &'static SharedWifiController) {
+    info!("Finishing WiFi provisioning mode");
+    {
+        let controller = controller.lock().await;
+        if controller.is_connected() && close_access_point(&controller).is_ok() {
+            info!("Setup network closed, WiFi stays connected");
+            set_provisioning(false);
+            return;
+        }
+    }
+
+    // Else start over as station only: restarts the WiFi, the station
+    // connects again
+    set_provisioning(true);
+    let settings = app_settings::persist::get_settings().await;
+    controller
+        .lock()
+        .await
+        .set_config(&Config::Station(stored_station_config(&settings)))
+        .expect("Failed to set STA config");
+    connect_ap();
+}
+
+/// Switches from access point and station to station only, without stopping
+/// the WiFi like `set_config` does (which drops the station's connection).
+/// The driver stops the access point (its stop event updates the controller's
+/// state), the station's config is kept.
+fn close_access_point(_controller: &WifiController<'static>) -> Result<(), ()> {
+    // SAFETY: Called with the controller locked, the WiFi started
+    let result = unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA) };
+    if result != 0 {
+        error!("Failed to close the setup network: {}", result);
+        return Err(());
+    }
+    Ok(())
+}
+
 /// Connects the station, if not connected. False if that failed.
 async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
     info!("Connecting to WiFi access point");
@@ -306,7 +358,7 @@ async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
 
     if controller.lock().await.is_connected() {
         info!("WiFi already connected");
-        PROVISIONING.store(false, Ordering::Relaxed);
+        set_provisioning(false);
         return true;
     }
 
@@ -318,7 +370,7 @@ async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
             info!("WiFi connected successfully (channel {})", info.channel);
             profiling::once!(wifi_connected);
             stats::WIFI_CONNECTIONS.inc();
-            PROVISIONING.store(false, Ordering::Relaxed);
+            set_provisioning(false);
             true
         }
         Err(e) => {

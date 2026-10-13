@@ -4,6 +4,9 @@
 // Main entry point. Initializes system, RTOS, peripherals and spawns all tasks.
 #![no_std]
 #![no_main]
+// The gateway connection's nested futures (HTTP over buffered TLS over TCP)
+// are deeper than the default limit to compute their layout
+#![recursion_limit = "256"]
 
 extern crate alloc;
 
