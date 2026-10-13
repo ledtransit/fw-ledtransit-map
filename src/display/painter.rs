@@ -27,6 +27,12 @@ const PAINTER_FPS: u32 = 40;
 const RENDERER_FRAME_TIME_MS: u64 = 1000 / RENDERER_FPS as u64;
 // Offline after the end of the simulated data
 const DATA_STALE_AFTER_SECS: u32 = 120;
+// Transitions take this long, at the fastest and the slowest animation speed
+const MIN_TRANSITION_DURATION_MS: u64 = 50;
+const MAX_TRANSITION_DURATION_MS: u64 = 550;
+// Everything drawn has settled this long after a change: each transition
+// starts within a renderer frame, and takes at most the longest one
+const SETTLE_DURATION_MS: u64 = RENDERER_FRAME_TIME_MS + MAX_TRANSITION_DURATION_MS;
 
 pub fn spawn(spawner: embassy_executor::Spawner) {
     spawner.spawn(draw_task().unwrap());
@@ -92,13 +98,15 @@ async fn draw_frame() {
     let rendered_state = store.state.rendered_state.clone();
     let now_instant_ms = Instant::now().as_millis();
 
-    // Before the first frame: fade out what was shown before
+    // Before the first frame: fade out what was shown before. The data then
+    // fades in (after boot, or after it was stale): telemetry once it's shown
     if rendered_state.drawn_first_frame_at_instant_ms.is_none() {
         profiling::once!(painter_fade_out_started);
         leds::set_pixels(LedPixels::FadeOut).await;
         leds::wait_pixels_animation_complete().await;
         profiling::once!(painter_fade_out_done);
         store.state.rendered_state.drawn_first_frame_at_instant_ms = Some(now_instant_ms as u32);
+        store.state.painter_telemetry_pending = true;
     }
 
     let Some(rendered_data_first_at_instant_ms) = rendered_state.rendered_data_first_at_instant_ms
@@ -128,7 +136,11 @@ async fn draw_frame() {
         RenderMode::try_from(config.render_mode).unwrap_or(RenderMode::SnapClosestTransition);
     let transition_duration_ms = match render_mode {
         RenderMode::SnapClosest => 0,
-        RenderMode::SnapClosestTransition => lerp(50.0, 550.0, 1.0 - animation_speed_unit) as u64,
+        RenderMode::SnapClosestTransition => lerp(
+            MIN_TRANSITION_DURATION_MS as f32,
+            MAX_TRANSITION_DURATION_MS as f32,
+            1.0 - animation_speed_unit,
+        ) as u64,
     };
     let config_changed_this_render_frame = now_instant_ms
         .saturating_sub(rendered_state.config_last_changed_at_instant_ms as u64)
@@ -163,11 +175,12 @@ async fn draw_frame() {
     leds::update();
     profiling::once!(first_transit_data_painted);
 
-    // Send telemetry once the new data (or config) is fully shown
+    // Telemetry once the faded in data, or the changed config, is fully shown
+    // (not for each new data: the periodic telemetry covers it)
     let changed_at_ms = rendered_data_first_at_instant_ms
         .max(rendered_state.config_last_changed_at_instant_ms) as u64;
-    let settled_at_ms = changed_at_ms + RENDERER_FRAME_TIME_MS + transition_duration_ms;
-    if store.state.painter_telemetry_pending && now_instant_ms >= settled_at_ms {
+    if store.state.painter_telemetry_pending && now_instant_ms >= changed_at_ms + SETTLE_DURATION_MS
+    {
         store.state.painter_telemetry_pending = false;
         ws_client::send_telemetry();
     }

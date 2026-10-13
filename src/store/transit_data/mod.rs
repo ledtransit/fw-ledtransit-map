@@ -36,7 +36,7 @@ pub struct TransitDataState {
     pub rendered_state: RendererState,
     pub renderer_out: RendererOutput,
     pub is_data_stale: bool, // No new transit data received in a while
-    pub painter_telemetry_pending: bool,
+    pub painter_telemetry_pending: bool, // Telemetry once the painter shows the data faded in, or the changed config
 }
 
 #[derive(Clone, Default)]
@@ -60,6 +60,7 @@ pub async fn on_data(transit_data: TransitData, size_bytes: usize, received_in: 
     let mut store = TRANSIT_DATA_STORE.lock().await;
     let prev = store.as_ref();
     let was_stale = prev.is_some_and(|s| s.state.is_data_stale);
+    let is_first = prev.is_none();
     let renderer_out = RendererOutput {
         vehicles: carry_over_vehicles(&transit_data, prev),
         disruptions: carry_over_disruptions(&transit_data, prev),
@@ -87,7 +88,9 @@ pub async fn on_data(transit_data: TransitData, size_bytes: usize, received_in: 
             rendered_state,
             renderer_out,
             is_data_stale: false,
-            painter_telemetry_pending: true,
+            // Only one pending for a config change carries over: the painter
+            // asks for one when it fades the data in
+            painter_telemetry_pending: prev.is_some_and(|s| s.state.painter_telemetry_pending),
         },
         stats,
     });
@@ -95,6 +98,10 @@ pub async fn on_data(transit_data: TransitData, size_bytes: usize, received_in: 
     profiling::once!(first_transit_data_cleared);
     if was_stale {
         STALE_CHANGED.signal(());
+    }
+    // The first since boot (or setup): reported right away, not only once shown
+    if is_first {
+        ws_client::send_telemetry();
     }
     profiling::once!(first_transit_data_stored);
 

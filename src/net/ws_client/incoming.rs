@@ -86,7 +86,6 @@ async fn on_server_info(server_info: ServerInfo) {
     }
     send_info();
     send_config();
-    send_telemetry();
     leds::set_status_led_from_session().await;
 }
 
