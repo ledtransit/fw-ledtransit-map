@@ -139,7 +139,7 @@ message DeviceTelemetry {
     required uint64 executor_stalled_micros_total = 40; // Since boot: how long the async executor couldn't run tasks (over 1 ms at a time), see ProfilingPoint
     required uint32 wifi_last_disconnect_reason = 41; // Why the WiFi was last disconnected, or failed to connect, since boot (ESP-IDF wifi_err_reason_t, e.g. 200 beacon timeout, 201 no AP found, 202 auth fail), 0 without one
     required uint32 button_presses_total = 42; // Presses of any button since boot
-    required float chip_temperature_celsius = 43; // Internal sensor, measures 20..100 °C (±2 °C)
+    required float chip_temperature_celsius = 43; // Internal sensor, in the range the WiFi driver sets (-10..80 °C, ±1 °C), NaN in an unknown one
 }
 
 // [on-input] Commands from server to client (control, actions). Factory reset,
