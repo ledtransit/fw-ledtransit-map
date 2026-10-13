@@ -12,6 +12,7 @@ extern crate serde;
 
 mod automation;
 mod buttons;
+mod chip_temperature;
 mod config;
 mod device_auth;
 mod display;
@@ -19,6 +20,7 @@ mod factory_serial;
 mod net;
 mod ota;
 mod profiling;
+mod stats;
 mod store;
 mod time;
 mod trace;
@@ -52,6 +54,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let hal_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(hal_config);
+    chip_temperature::init();
 
     // Reclaim RAM from bootloader, maximum value determined via:
     // riscv-none-elf-readelf -SW target/riscv32imc-unknown-none-elf/release/fw-ledtransit-map | grep dram2_uninit

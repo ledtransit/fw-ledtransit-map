@@ -17,7 +17,10 @@ use esp_hal::{
 };
 use esp_radio::wifi::{
     AuthenticationMethodConfig, Config, ControllerConfig, Interface, Password, Ssid,
-    WifiController, ap::AccessPointConfig, sta::StationConfig,
+    WifiController,
+    ap::AccessPointConfig,
+    event::{EventInfo, EventSubscriber},
+    sta::StationConfig,
 };
 use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion, X509};
 
@@ -161,6 +164,7 @@ pub async fn spawn(
 
     spawner.spawn(wifi_net_task(shared_controller, device_name).unwrap());
     spawner.spawn(wifi_conn_task(shared_controller).unwrap());
+    spawner.spawn(wifi_events_task(shared_controller).unwrap());
 
     info!("WiFi network stack initialized");
 }
@@ -337,6 +341,30 @@ async fn wifi_conn_task(controller: &'static SharedWifiController) {
             connect_ap();
         }
         Timer::after(CONNECTION_CHECK_INTERVAL).await;
+    }
+}
+
+// Records why the station was disconnected, or failed to connect: the
+// driver's events, the only place with the reason
+#[embassy_executor::task]
+async fn wifi_events_task(controller: &'static SharedWifiController) {
+    let mut events = {
+        let controller = controller.lock().await;
+        let events = controller
+            .subscribe()
+            .expect("No WiFi event subscriber left");
+        // SAFETY: Only the lifetime changes. The subscriber borrows the
+        // driver's static event channel, not the controller (which is static
+        // too, never moved or dropped), so it may outlive the lock
+        unsafe { core::mem::transmute::<EventSubscriber<'_>, EventSubscriber<'static>>(events) }
+    };
+    loop {
+        // Read right away: the driver drops new events while one isn't read
+        // by every subscriber
+        if let EventInfo::StationDisconnected { reason, .. } = events.next_event_pure().await {
+            info!("WiFi disconnected (reason {})", reason);
+            stats::on_wifi_disconnected(reason);
+        }
     }
 }
 

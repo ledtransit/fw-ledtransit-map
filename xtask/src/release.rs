@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use p256::{
     ecdsa::{
         Signature, SigningKey, VerifyingKey,
@@ -34,6 +34,7 @@ struct OtaMetadata {
     built_at: String,
     size_bytes: usize,
     sha256_hash: String,
+    build_id: String,
     p256_signature: String,
 }
 
@@ -96,6 +97,7 @@ pub fn build(args: ReleaseArgs) -> Result<()> {
         built_at: chrono::Utc::now().to_rfc3339(),
         size_bytes: image.len(),
         sha256_hash: sha256_hex,
+        build_id: image_build_id(&image)?,
         p256_signature: signature.to_string(),
     };
     let metadata_path = ota_dir.join("metadata.json");
@@ -109,6 +111,44 @@ pub fn build(args: ReleaseArgs) -> Result<()> {
         firmware::monitor()?;
     }
     Ok(())
+}
+
+/// The image's build ID: the SHA-256 espflash appends to it, which the
+/// firmware reports for its running image (see the firmware's
+/// store/app_settings/info.rs).
+fn image_build_id(image: &[u8]) -> Result<String> {
+    // App image format (ESP-IDF esp_image_format.h)
+    const IMAGE_MAGIC: u8 = 0xE9;
+    const HEADER_LEN: usize = 24;
+    const HASH_APPENDED_BYTE: usize = 23;
+    const SEGMENT_HEADER_LEN: usize = 8;
+    const HASH_LEN: usize = 32;
+
+    let header = image.get(..HEADER_LEN).context("OTA image too short")?;
+    ensure!(header[0] == IMAGE_MAGIC, "Invalid OTA image magic");
+    ensure!(
+        header[HASH_APPENDED_BYTE] != 0,
+        "OTA image has no SHA-256 appended"
+    );
+    let mut len = HEADER_LEN;
+    for _ in 0..header[1] {
+        let segment_header = image
+            .get(len..len + SEGMENT_HEADER_LEN)
+            .context("OTA image truncated in its segments")?;
+        let data_len = u32::from_le_bytes(segment_header[4..].try_into()?) as usize;
+        len += SEGMENT_HEADER_LEN + data_len;
+    }
+    // The checksum byte, padded to a full 16 byte block
+    len = (len + 1).next_multiple_of(16);
+    let appended = image
+        .get(len..len + HASH_LEN)
+        .context("OTA image truncated before its appended SHA-256")?;
+    let build_id = hex::encode(appended);
+    ensure!(
+        sha256::digest(&image[..len]) == build_id,
+        "OTA image's appended SHA-256 doesn't match its contents"
+    );
+    Ok(build_id)
 }
 
 // Linker scripts, and local paths remapped so they don't end up in the binary

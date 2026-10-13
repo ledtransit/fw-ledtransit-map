@@ -13,6 +13,7 @@ use crate::{
         ColorMode, DeviceConfig, DisruptionFilter, DisruptionInterval, DisruptionMode,
         RealtimeFilter, RenderMode, SunlightAutoBrightness, TimerSettings, VehicleFilter,
     },
+    stats,
     store::with_data_partition,
     trace,
     util::pack_rgb8,
@@ -229,5 +230,6 @@ pub(super) async fn store_settings(flash_store: &mut FlashStorage<'_>) {
             .write(0, &serialized)
             .expect("Failed to write settings to storage")
     });
+    stats::SETTINGS_WRITES.inc();
     debug!("Settings stored to flash (v{})", settings.version);
 }

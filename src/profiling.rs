@@ -8,7 +8,7 @@
 use core::{
     cell::RefCell,
     net::SocketAddr,
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use critical_section::Mutex;
@@ -19,9 +19,12 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{ErrorType, Read, Write};
 use esp_hal::timer::systimer::{SystemTimer, Unit};
 
-use crate::net::ws_client::{
-    self,
-    client_proto::{DeviceProfiling, ProfilingPoint},
+use crate::{
+    net::ws_client::{
+        self,
+        client_proto::{DeviceProfiling, ProfilingPoint},
+    },
+    stats,
 };
 
 // The system timer counts from reset, at 16 MHz on the ESP32-C3 (from the 40
@@ -36,7 +39,6 @@ const STALL_THRESHOLD: Duration = Duration::from_millis(1);
 static PROFILING: Mutex<RefCell<Option<DeviceProfiling>>> = Mutex::new(RefCell::new(None));
 // Set once finished: recording does nothing from then on, not even lock
 static FINISHED: AtomicBool = AtomicBool::new(false);
-static STALLED_MICROS: AtomicU32 = AtomicU32::new(0);
 
 /// Records the point (a field of DeviceProfiling) as reached now, or at the
 /// point given, unless reached before.
@@ -66,7 +68,7 @@ pub fn now() -> ProfilingPoint {
     ProfilingPoint {
         micros_since_boot: SystemTimer::unit_value(Unit::Unit0) / SYSTIMER_TICKS_PER_MICRO,
         free_heap_bytes: esp_alloc::HEAP.free() as u32,
-        executor_stalled_micros: STALLED_MICROS.load(Ordering::Relaxed),
+        executor_stalled_micros: stats::EXECUTOR_STALLED_MICROS.get() as u32,
     }
 }
 
@@ -118,18 +120,16 @@ pub fn take_finished() -> Option<DeviceProfiling> {
     })
 }
 
-// Adds up how late it wakes, until profiling finished: the time the executor
-// couldn't run any task
+// Adds up how late it wakes: the time the executor couldn't run any task.
+// Also after profiling finished, for the telemetry
 #[embassy_executor::task]
 async fn stall_monitor_task() {
-    while !FINISHED.load(Ordering::Relaxed) {
+    loop {
         let wake_at = Instant::now() + STALL_MONITOR_INTERVAL;
         Timer::at(wake_at).await;
         let late = Instant::now().saturating_duration_since(wake_at);
         if late > STALL_THRESHOLD {
-            // Only this task writes
-            let stalled_micros = STALLED_MICROS.load(Ordering::Relaxed) + late.as_micros() as u32;
-            STALLED_MICROS.store(stalled_micros, Ordering::Relaxed);
+            stats::EXECUTOR_STALLED_MICROS.add(late.as_micros());
         }
     }
 }

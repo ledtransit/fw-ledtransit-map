@@ -1,13 +1,17 @@
-// Network counters since boot, sent with the telemetry. Only ever counting
-// up: the gateway derives rates from the difference between two telemetry
-// messages (zero while nothing is received), over any window. A reboot resets
-// them, which the uptime shows
-use core::{cell::Cell, net::SocketAddr};
+// Network counters since boot, sent with the telemetry (see stats): rates
+// derived from them are zero while nothing is received
+use core::{
+    cell::Cell,
+    net::SocketAddr,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use critical_section::Mutex;
 use edge_nal::{Close, Readable, TcpConnect, TcpShutdown, TcpSplit};
 use embassy_time::Instant;
 use embedded_io_async::{ErrorType, Read, Write};
+
+use crate::stats::Counter;
 
 pub static GATEWAY_TRAFFIC: Traffic = Traffic::new();
 pub static OTA_TRAFFIC: Traffic = Traffic::new();
@@ -18,33 +22,12 @@ pub static TRANSIT_DATA_COUNT: Counter = Counter::new();
 pub static TRANSIT_DATA_BYTES: Counter = Counter::new();
 pub static TRANSIT_DATA_ERRORS: Counter = Counter::new();
 
+// The last reason the WiFi station was disconnected, or failed to connect
+// (ESP-IDF's wifi_err_reason_t), 0 without one
+static WIFI_LAST_DISCONNECT_REASON: AtomicU32 = AtomicU32::new(0);
+
 // When the current gateway connection was established, if connected
 static GATEWAY_CONNECTED_AT: Mutex<Cell<Option<Instant>>> = Mutex::new(Cell::new(None));
-
-/// 64 bit: bytes wouldn't fit into 32 bit for long. Without 64 bit atomics on
-/// this chip, in a critical section.
-pub struct Counter(Mutex<Cell<u64>>);
-
-impl Counter {
-    pub const fn new() -> Self {
-        Self(Mutex::new(Cell::new(0)))
-    }
-
-    pub fn add(&self, n: u64) {
-        critical_section::with(|cs| {
-            let count = self.0.borrow(cs);
-            count.set(count.get().wrapping_add(n));
-        });
-    }
-
-    pub fn inc(&self) {
-        self.add(1);
-    }
-
-    pub fn get(&self) -> u64 {
-        critical_section::with(|cs| self.0.borrow(cs).get())
-    }
-}
 
 /// Bytes of a connection's TCP stream (TLS records, or HTTP and WebSocket
 /// frames without TLS), not counting the TCP/IP headers.
@@ -60,6 +43,14 @@ impl Traffic {
             tx_bytes: Counter::new(),
         }
     }
+}
+
+pub fn on_wifi_disconnected(reason: u16) {
+    WIFI_LAST_DISCONNECT_REASON.store(reason.into(), Ordering::Relaxed);
+}
+
+pub fn wifi_last_disconnect_reason() -> u32 {
+    WIFI_LAST_DISCONNECT_REASON.load(Ordering::Relaxed)
 }
 
 pub fn on_gateway_connected() {

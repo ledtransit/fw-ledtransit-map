@@ -1,5 +1,5 @@
-// Commands over the USB serial port, for production (the release tool's
-// register-device): "ledtransit hardware-id" and "ledtransit self-test
+// Commands over the USB serial port, for production (the release process):
+// "ledtransit hardware-id" and "ledtransit self-test
 // <challenge>", answered "ok <fields>" or "error <reason>". The self-test
 // proves both device keys over the tool's challenge, under their own label:
 // nothing this answers authenticates to the gateway.
@@ -18,6 +18,7 @@ use esp_hal::{
 use crate::{
     config,
     device_auth::{self, DeviceAuthError},
+    store::app_settings::info,
 };
 
 const MAX_LINE_LENGTH: usize = 128;
@@ -63,12 +64,16 @@ async fn handle_line(line: &[u8], tx: &mut UsbSerialJtagTx<'static, Async>) {
         (Some("hardware-id"), None, None) => write!(answer, "ok {}", hardware_id),
         (Some("self-test"), Some(challenge), None) if challenge.len() <= 64 => {
             match device_auth::self_test_proofs(challenge, &hardware_id).await {
-                Ok((primary, backup)) => write!(
-                    answer,
-                    "ok {} {}",
-                    device_auth::to_hex(&primary),
-                    device_auth::to_hex(&backup)
-                ),
+                Ok((primary, backup)) => {
+                    // Only run at production
+                    info::on_factory_self_test();
+                    write!(
+                        answer,
+                        "ok {} {}",
+                        device_auth::to_hex(&primary),
+                        device_auth::to_hex(&backup)
+                    )
+                }
                 Err(DeviceAuthError::NoKey) => write!(answer, "error no-key"),
                 Err(DeviceAuthError::NotInitialized) => write!(answer, "error not-initialized"),
             }

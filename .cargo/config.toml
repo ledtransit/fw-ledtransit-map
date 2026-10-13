@@ -15,6 +15,10 @@ rustflags = [
 [env]
 DEFMT_LOG="error"
 SSL_ENABLED="true"
+# A subscriber for the disconnect reasons (see wifi_net) besides the driver's
+# own, and room for events while it reads them
+ESP_RADIO_CONFIG_EVENT_CHANNEL_SUBSCRIBERS="3"
+ESP_RADIO_CONFIG_EVENT_CHANNEL_CAPACITY="8"
 
 [unstable]
 build-std = ["alloc", "core"]

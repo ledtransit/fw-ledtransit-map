@@ -5,8 +5,6 @@
 // firmware or any other flashed, can read them, only have the HMAC peripheral
 // compute with them. Each message is bound to what it's for by its label, and
 // to a fresh challenge, so a proof can't be reused or computed ahead of time.
-//
-// Must match the gateway (device_auth) and the release tool (register-device).
 
 use alloc::vec::Vec;
 use core::fmt::Write;
@@ -160,7 +158,7 @@ pub async fn connect_proof(
     .await
 }
 
-/// Proofs of both keys for the release tool's self-test at production.
+/// Proofs of both keys for the release process's self-test at production.
 pub async fn self_test_proofs(
     challenge: &str,
     hardware_id: &str,

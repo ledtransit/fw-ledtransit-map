@@ -3,6 +3,8 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, s
 use embassy_time::{Duration, Timer, with_timeout};
 use esp_hal::gpio::{AnyPin, Input, InputConfig, Pull};
 
+use crate::stats;
+
 const LONG_PRESS_DURATION: Duration = Duration::from_millis(2000);
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(10);
 
@@ -86,6 +88,7 @@ async fn button_task(pin: AnyPin<'static>, button: Button) {
             BUTTON_STATE.lock().await.set_pressed(button, false);
             continue;
         }
+        stats::BUTTON_PRESSES.inc();
 
         let released = with_timeout(LONG_PRESS_DURATION, input.wait_for_rising_edge())
             .await

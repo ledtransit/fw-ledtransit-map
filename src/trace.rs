@@ -10,7 +10,7 @@ use crate::net::ws_client::{
     client_proto::{DeviceError, DeviceErrorType},
 };
 
-const MAX_NUM_ERRORS: usize = 4;
+const MAX_NUM_ERRORS: usize = 8;
 const PANIC_INFO_MAX_SERIALIZED_SIZE: usize = 256;
 
 static ERRORS: Mutex<CriticalSectionRawMutex, heapless::Vec<DeviceError, MAX_NUM_ERRORS>> =

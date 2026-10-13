@@ -35,6 +35,8 @@ message DeviceInfo {
     required bool is_beta_firmware = 4;
     required bool is_rolled_back_firmware = 5;
     required bool is_factory_firmware = 6;
+    required bytes build_id = 7; // SHA-256 of the running image (appended by espflash, esptool image-info's "Validation hash"), zeros if unknown
+    required InstallMethod install_method = 8; // How the running image got into its app slot
 }
 
 // [on-join/on-input] Device status valid for entire session, cached on server, reset on reboot
@@ -130,6 +132,14 @@ message DeviceTelemetry {
     // The last transit data message (0 before the first): size / receive time is the effective downlink speed
     required uint32 last_transit_data_size_bytes = 35;
     required uint32 last_transit_data_receive_millis = 36; // From its frame header to its payload received and decoded
+    // Device health
+    required ResetReason reset_reason = 37; // Why the chip last started (this boot)
+    required uint32 boot_count_total = 38; // Boots ever (counted in flash, survives factory resets), this one included. 0 if it couldn't be counted
+    required uint32 settings_writes_total = 39; // Persistent settings written to flash since boot
+    required uint64 executor_stalled_micros_total = 40; // Since boot: how long the async executor couldn't run tasks (over 1 ms at a time), see ProfilingPoint
+    required uint32 wifi_last_disconnect_reason = 41; // Why the WiFi was last disconnected, or failed to connect, since boot (ESP-IDF wifi_err_reason_t, e.g. 200 beacon timeout, 201 no AP found, 202 auth fail), 0 without one
+    required uint32 button_presses_total = 42; // Presses of any button since boot
+    required float chip_temperature_celsius = 43; // Internal sensor, measures 20..100 °C (±2 °C)
 }
 
 // [on-input] Commands from server to client (control, actions). Factory reset,
@@ -233,6 +243,37 @@ message Echo {
 }
 
 // --- TYPES ---
+
+// How the running image was installed
+enum InstallMethod {
+    INSTALL_METHOD_UNKNOWN = 0; // Was there when install tracking started (firmware from before it), until the production self-test passes
+    INSTALL_METHOD_FACTORY = 1; // Flashed at production (passed the self-test)
+    INSTALL_METHOD_USB = 2; // Flashed over USB after production
+    INSTALL_METHOD_OTA = 3; // Firmware update
+}
+
+// The chip's reset reasons (ESP32-C3 codes)
+enum ResetReason {
+    RESET_REASON_UNKNOWN = 0;
+    RESET_REASON_CHIP_POWER_ON = 1; // Also a brownout or super watchdog resetting the whole chip
+    RESET_REASON_CORE_SW = 3; // Software reset of the digital core (reboot, panic, firmware update)
+    RESET_REASON_CORE_DEEP_SLEEP = 5;
+    RESET_REASON_CORE_MWDT0 = 7; // Main watchdog 0
+    RESET_REASON_CORE_MWDT1 = 8; // Main watchdog 1
+    RESET_REASON_CORE_RTC_WDT = 9; // RTC watchdog, resetting the core (the firmware hung, see watchdog)
+    RESET_REASON_CPU0_MWDT0 = 11;
+    RESET_REASON_CPU0_SW = 12; // Software reset of the CPU
+    RESET_REASON_CPU0_RTC_WDT = 13;
+    RESET_REASON_SYS_BROWN_OUT = 15; // Supply voltage too low
+    RESET_REASON_SYS_RTC_WDT = 16; // RTC watchdog, resetting the system
+    RESET_REASON_CPU0_MWDT1 = 17;
+    RESET_REASON_SYS_SUPER_WDT = 18;
+    RESET_REASON_SYS_CLK_GLITCH = 19;
+    RESET_REASON_CORE_EFUSE_CRC = 20;
+    RESET_REASON_CORE_USB_UART = 21;
+    RESET_REASON_CORE_USB_JTAG = 22;
+    RESET_REASON_CORE_PWR_GLITCH = 23;
+}
 
 enum DeviceErrorType {
     DEVICE_ERROR_TYPE_PANIC = 0;

@@ -8,11 +8,15 @@ use super::client_proto::{
     client_message::Payload,
 };
 use crate::{
+    chip_temperature,
     config::CONFIG,
     display::leds,
-    net::{stats, wifi_net::SharedWifiController},
-    profiling,
-    store::{app_settings, transit_data},
+    net::{stats as net_stats, wifi_net::SharedWifiController},
+    profiling, stats,
+    store::{
+        app_settings::{self, info::InstallMethod},
+        transit_data,
+    },
     time, trace,
 };
 
@@ -86,17 +90,24 @@ pub async fn telemetry(controller: &'static SharedWifiController) -> Vec<u8> {
             .pending_confirmation
             .map(|pending| pending.deadline_unix_timestamp),
         display_frames_per_second: session_settings.display_frames_per_second,
-        gateway_rx_bytes_total: stats::GATEWAY_TRAFFIC.rx_bytes.get(),
-        gateway_tx_bytes_total: stats::GATEWAY_TRAFFIC.tx_bytes.get(),
-        ota_rx_bytes_total: stats::OTA_TRAFFIC.rx_bytes.get(),
-        transit_data_rx_bytes_total: stats::TRANSIT_DATA_BYTES.get(),
-        transit_data_rx_count_total: stats::TRANSIT_DATA_COUNT.get() as u32,
-        transit_data_errors_total: stats::TRANSIT_DATA_ERRORS.get() as u32,
-        gateway_connections_total: stats::GATEWAY_CONNECTIONS.get() as u32,
-        wifi_connections_total: stats::WIFI_CONNECTIONS.get() as u32,
-        gateway_connected_seconds: stats::gateway_connected_seconds(),
+        gateway_rx_bytes_total: net_stats::GATEWAY_TRAFFIC.rx_bytes.get(),
+        gateway_tx_bytes_total: net_stats::GATEWAY_TRAFFIC.tx_bytes.get(),
+        ota_rx_bytes_total: net_stats::OTA_TRAFFIC.rx_bytes.get(),
+        transit_data_rx_bytes_total: net_stats::TRANSIT_DATA_BYTES.get(),
+        transit_data_rx_count_total: net_stats::TRANSIT_DATA_COUNT.get() as u32,
+        transit_data_errors_total: net_stats::TRANSIT_DATA_ERRORS.get() as u32,
+        gateway_connections_total: net_stats::GATEWAY_CONNECTIONS.get() as u32,
+        wifi_connections_total: net_stats::WIFI_CONNECTIONS.get() as u32,
+        gateway_connected_seconds: net_stats::gateway_connected_seconds(),
         last_transit_data_size_bytes: transit_data_stats.size_bytes,
         last_transit_data_receive_millis: transit_data_stats.receive_millis,
+        reset_reason: esp_hal::system::reset_reason().map_or(0, |reason| reason as i32),
+        boot_count_total: stats::boot_count(),
+        settings_writes_total: stats::SETTINGS_WRITES.get() as u32,
+        executor_stalled_micros_total: stats::EXECUTOR_STALLED_MICROS.get(),
+        wifi_last_disconnect_reason: net_stats::wifi_last_disconnect_reason(),
+        button_presses_total: stats::BUTTON_PRESSES.get() as u32,
+        chip_temperature_celsius: chip_temperature::read_celsius(),
     }))
 }
 
@@ -119,6 +130,7 @@ pub async fn errors() -> Vec<u8> {
 
 pub async fn info() -> Vec<u8> {
     let session_settings = app_settings::session::get_settings().await;
+    let (build_id, install_method) = app_settings::info::running_install();
     encode(Payload::DeviceInfo(DeviceInfo {
         firmware_version_major: CONFIG.fw_version.major,
         firmware_version_minor: CONFIG.fw_version.minor,
@@ -126,6 +138,13 @@ pub async fn info() -> Vec<u8> {
         is_beta_firmware: CONFIG.fw_version.beta,
         is_rolled_back_firmware: session_settings.is_rolled_back_firmware,
         is_factory_firmware: session_settings.is_factory_firmware,
+        build_id: build_id.into(),
+        install_method: match install_method {
+            InstallMethod::Unknown => client_proto::InstallMethod::Unknown,
+            InstallMethod::Factory => client_proto::InstallMethod::Factory,
+            InstallMethod::Usb => client_proto::InstallMethod::Usb,
+            InstallMethod::Ota => client_proto::InstallMethod::Ota,
+        } as i32,
     }))
 }
 
