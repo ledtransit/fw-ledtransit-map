@@ -29,10 +29,27 @@ pub fn build(args: BuildArgs, run: bool) -> Result<()> {
         args.log
     );
 
-    // When running, the connected device decides (and must match a given product)
+    // When running, the connected device decides (and must match a given
+    // product). It waits in its serial bootloader from detecting until
+    // flashing, so it boots once, with the firmware flashed. Unless nothing
+    // gets flashed: then it boots its firmware again
     let detected = if run { detect_device() } else { None };
+    if let Err(e) = select_and_build(&args, run, detected) {
+        if run {
+            reset_device();
+        }
+        return Err(e);
+    }
+    if !run {
+        return Ok(());
+    }
+    flash(ELF_PATH)?;
+    monitor()
+}
+
+fn select_and_build(args: &BuildArgs, run: bool, detected: Option<ConnectedDevice>) -> Result<()> {
     let (product_id, is_factory) = select_product(args.product_id.clone(), detected)?;
-    let env = development_env(&args, &product_id);
+    let env = development_env(args, &product_id);
 
     // Flashing writes the factory partition: unless that's booted already,
     // reset the boot selection so the bootloader boots it
@@ -40,12 +57,13 @@ pub fn build(args: BuildArgs, run: bool) -> Result<()> {
         erase_otadata()?;
     }
 
-    cargo_build(&env)?;
-    if !run {
-        return Ok(());
+    cargo_build(&env)
+}
+
+fn reset_device() {
+    if let Err(e) = tools::espflash(&["reset", "--skip-update-check"]) {
+        log::warn!("Failed to reset the device: {:?}", e);
     }
-    flash(ELF_PATH)?;
-    monitor()
 }
 
 /// Builds the factory image (from a clean, tagged commit) and installs it.
@@ -162,7 +180,7 @@ fn development_env(args: &BuildArgs, product_id: &ProductId) -> Vec<(&'static st
 }
 
 fn detect_device() -> Option<ConnectedDevice> {
-    match device::detect() {
+    match device::detect(true) {
         Ok(device) => {
             log::info!(
                 "Auto-detected connected device: {:?} (firmware version: {}, factory: {})",
@@ -213,8 +231,11 @@ fn erase_otadata() -> Result<()> {
         OTADATA_OFFSET,
         OTADATA_SIZE
     );
+    // Leaves the device in its serial bootloader, for flashing
     tools::espflash(&[
         "erase-region",
+        "--after",
+        "no-reset",
         &OTADATA_OFFSET.to_string(),
         &OTADATA_SIZE.to_string(),
     ])

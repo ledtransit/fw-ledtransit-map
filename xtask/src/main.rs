@@ -24,7 +24,7 @@ fn main() -> Result<()> {
         Cli::Build(args) => firmware::build(args, false),
         Cli::Run(args) => firmware::build(args, true),
         Cli::Monitor => firmware::monitor(),
-        Cli::Detect => device::detect().map(|_| ()),
+        Cli::Detect => device::detect(false).map(|_| ()),
         Cli::Clippy(args) => firmware::clippy(args),
         Cli::Bootloader => assets::build_bootloader(),
         Cli::ProvServer => assets::build_prov_server(),

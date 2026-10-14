@@ -111,7 +111,7 @@ A standard 500 mA USB 2.0 port is sufficient to power the device for small brigh
 
 ## Flash the firmware
 
-Build, flash and monitor the firmware with the `run` command. If no product is specified, the command auto-detects the connected device and flashes the corresponding firmware.
+Build, flash and monitor the firmware with the `run` command. If no product is specified, the command auto-detects the connected device and flashes the corresponding firmware. The device waits in its bootloader from detection until flashing, so it boots only once, with the new firmware (or its old one again if the build fails).
 
 ```sh
 cargo xtask run # <product>
