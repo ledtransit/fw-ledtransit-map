@@ -158,7 +158,7 @@ pub fn release_env(product_id: &ProductId) -> Vec<(&'static str, String)> {
 fn development_env(args: &BuildArgs, product_id: &ProductId) -> Vec<(&'static str, String)> {
     let mut env = vec![
         ("PRODUCT", product_id.as_str().to_string()),
-        ("DEFMT_LOG", args.log.as_str().to_string()),
+        ("DEFMT_LOG", args.log.defmt_filter()),
     ];
     let overrides = [
         ("WIFI_SSID", args.wifi_ssid.clone()),

@@ -144,4 +144,13 @@ impl LogLevel {
             LogLevel::Trace => "trace",
         }
     }
+
+    /// DEFMT_LOG filter for this level. Below info, the esp-hal DMA driver
+    /// logs every transfer (the LED output), so it stays at info
+    pub fn defmt_filter(&self) -> String {
+        match self {
+            LogLevel::Debug | LogLevel::Trace => format!("{},esp_hal::dma=info", self.as_str()),
+            _ => self.as_str().to_string(),
+        }
+    }
 }
