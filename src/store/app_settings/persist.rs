@@ -9,9 +9,12 @@ use serde::{Deserialize, Serialize};
 use super::STORE_SETTINGS_SIGNAL;
 use crate::{
     config::CONFIG,
-    net::ws_client::client_proto::{
-        ColorMode, DeviceConfig, DisruptionFilter, DisruptionInterval, DisruptionMode,
-        RealtimeFilter, RenderMode, SunlightAutoBrightness, TimerSettings, VehicleFilter,
+    net::{
+        wifi_psk::Psk,
+        ws_client::client_proto::{
+            ColorMode, DeviceConfig, DisruptionFilter, DisruptionInterval, DisruptionMode,
+            RealtimeFilter, RenderMode, SunlightAutoBrightness, TimerSettings, VehicleFilter,
+        },
     },
     stats,
     store::with_data_partition,
@@ -21,7 +24,7 @@ use crate::{
 
 const SETTINGS_PARTITION: &str = "settings";
 const SETTINGS_MAGIC: u32 = 0xA562E1B;
-const SETTINGS_VERSION: u32 = 1;
+const SETTINGS_VERSION: u32 = 2;
 const SETTINGS_MAX_BYTE_SIZE: usize = 1024;
 
 // Environment overrides
@@ -39,6 +42,36 @@ pub struct PersistSettings {
     pub claimed: bool, // Claimed into its user's account by the gateway: connects with its device keys from then on
     pub remote_control_enabled: bool, // Whether the server may switch the light, change the config and run commands. Only the buttons turn it back on
     pub config: DeviceConfig, // Device configuration settings synced with server user settings
+    pub wifi_psk: Option<Psk>, // The WPA2 key derived from the WiFi credentials, connected with in place of the password (see wifi_psk)
+}
+
+// Version 1: without the WiFi key
+#[derive(Deserialize)]
+struct PersistSettingsV1 {
+    magic: u32,
+    _version: u32,
+    wifi_ssid: Option<heapless::String<32>>,
+    wifi_password: Option<heapless::String<64>>,
+    prov_token: Option<heapless::String<64>>,
+    claimed: bool,
+    remote_control_enabled: bool,
+    config: DeviceConfig,
+}
+
+impl From<PersistSettingsV1> for PersistSettings {
+    fn from(v1: PersistSettingsV1) -> Self {
+        PersistSettings {
+            magic: v1.magic,
+            version: SETTINGS_VERSION,
+            wifi_ssid: v1.wifi_ssid,
+            wifi_password: v1.wifi_password,
+            prov_token: v1.prov_token,
+            claimed: v1.claimed,
+            remote_control_enabled: v1.remote_control_enabled,
+            config: v1.config,
+            wifi_psk: None,
+        }
+    }
 }
 
 // The start of every version, to tell which one is stored
@@ -64,8 +97,21 @@ impl PersistSettings {
     pub fn clear_wifi_credentials_and_auth(&mut self) {
         self.wifi_ssid = None;
         self.wifi_password = None;
+        self.wifi_psk = None;
         self.prov_token = None;
         self.claimed = false;
+    }
+
+    /// Sets the WiFi credentials, dropping the key derived from the previous
+    /// ones (if they differ).
+    pub fn set_wifi_credentials(&mut self, ssid: &str, password: &str) {
+        let ssid = Some(heapless::String::try_from(ssid).unwrap_or_default());
+        let password = Some(heapless::String::try_from(password).unwrap_or_default());
+        if self.wifi_ssid != ssid || self.wifi_password != password {
+            self.wifi_ssid = ssid;
+            self.wifi_password = password;
+            self.wifi_psk = None;
+        }
     }
 
     pub fn has_credentials_and_is_claimed(&self) -> bool {
@@ -123,6 +169,7 @@ const fn persist_settings_default() -> PersistSettings {
             disruption_filter: DisruptionFilter::Severe as i32,
             disruptions_enabled: false,
         },
+        wifi_psk: None,
     }
 }
 
@@ -143,8 +190,8 @@ pub async fn init(flash_store: &mut FlashStorage<'_>) {
     *SETTINGS.lock().await = settings;
 }
 
-// The stored settings. The fields aren't named in the stored data, so only
-// the current version can be read (another one would need a migration)
+// The stored settings. The fields aren't named in the stored data, so each
+// version is read as stored, and migrated to the current one
 fn deserialize_settings(buf: &[u8]) -> PersistSettings {
     let header = postcard::from_bytes::<SettingsHeader>(buf).unwrap_or(SettingsHeader {
         magic: 0,
@@ -159,9 +206,13 @@ fn deserialize_settings(buf: &[u8]) -> PersistSettings {
         return PersistSettings::default();
     }
 
-    let settings = (header.version == SETTINGS_VERSION)
-        .then(|| postcard::from_bytes::<PersistSettings>(buf).ok())
-        .flatten();
+    let settings = match header.version {
+        SETTINGS_VERSION => postcard::from_bytes::<PersistSettings>(buf).ok(),
+        1 => postcard::from_bytes::<PersistSettingsV1>(buf)
+            .ok()
+            .map(PersistSettings::from),
+        _ => None,
+    };
     settings.unwrap_or_else(|| {
         trace::wrn!(
             "Failed to load settings version {} (current {}), resetting to defaults",
@@ -172,14 +223,15 @@ fn deserialize_settings(buf: &[u8]) -> PersistSettings {
     })
 }
 
+// The WiFi key stays when the credentials are the stored ones
 fn apply_env_overrides(settings: &mut PersistSettings) {
-    if let Some(ssid) = WIFI_SSID {
-        settings.wifi_ssid = heapless::String::try_from(ssid).ok();
-        warn!("Overriding WiFi SSID from environment variable");
-    }
-    if let Some(password) = WIFI_PASSWORD {
-        settings.wifi_password = heapless::String::try_from(password).ok();
-        warn!("Overriding WiFi password from environment variable");
+    if WIFI_SSID.is_some() || WIFI_PASSWORD.is_some() {
+        let (ssid, password) = (settings.wifi_ssid.clone(), settings.wifi_password.clone());
+        settings.set_wifi_credentials(
+            WIFI_SSID.or(ssid.as_deref()).unwrap_or_default(),
+            WIFI_PASSWORD.or(password.as_deref()).unwrap_or_default(),
+        );
+        warn!("Overriding WiFi credentials from environment variable");
     }
     if let Some(token) = PROV_TOKEN {
         settings.prov_token = heapless::String::try_from(token).ok();

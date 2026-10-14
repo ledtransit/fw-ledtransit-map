@@ -2086,6 +2086,7 @@ dependencies = [
  "rgb",
  "serde",
  "serde-json-core",
+ "sha1_smol",
  "smart-leds",
  "smoltcp",
  "static_cell",

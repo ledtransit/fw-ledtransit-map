@@ -218,22 +218,22 @@ where
     }
 
     info!("Starting WiFi connection");
-    let connect_result = controller.lock().await.connect_async().await;
-    if let Err(e) = connect_result {
-        info!("WiFi start error: {:?}", e);
-        return respond_connect_failed(conn).await;
-    }
+    let connected = match controller.lock().await.connect_async().await {
+        Ok(connected) => connected,
+        Err(e) => {
+            info!("WiFi start error: {:?}", e);
+            return respond_connect_failed(conn).await;
+        }
+    };
 
     info!("WiFi started");
     app_settings::persist::update_settings(move |set| {
-        set.wifi_ssid = Some(heapless::String::try_from(request.ssid.as_str()).unwrap_or_default());
-        set.wifi_password =
-            Some(heapless::String::try_from(request.password.as_str()).unwrap_or_default());
+        set.set_wifi_credentials(&request.ssid, &request.password);
         set.prov_token = Some(request.token.clone());
     })
     .await;
     // The gateway connection starts meanwhile, while the page gets its answer
-    wifi_net::setup_station_connected();
+    wifi_net::setup_station_connected(&connected);
     respond_connected(conn).await
 }
 

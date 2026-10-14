@@ -16,11 +16,11 @@ use esp_hal::{
     rng::{Rng, Trng},
 };
 use esp_radio::wifi::{
-    AuthenticationMethodConfig, Config, ControllerConfig, Interface, Password, Ssid,
-    WifiController,
+    AuthenticationMethod, AuthenticationMethodConfig, Config, ConnectionError, ControllerConfig,
+    DisconnectReason, Interface, Password, Ssid, WifiController,
     ap::AccessPointConfig,
     event::{EventInfo, EventSubscriber},
-    sta::StationConfig,
+    sta::{ConnectedInfo, DisconnectedInfo, StationConfig},
 };
 use esp_wifi_sys::include::{esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA};
 use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion, X509};
@@ -28,7 +28,7 @@ use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion
 use crate::{
     display::leds::{self, LedPixels, LedStatus},
     mk_static,
-    net::{provisioning, stats, ws_client},
+    net::{provisioning, stats, wifi_psk, ws_client},
     ota, profiling,
     store::{
         SharedFlashStorage,
@@ -66,6 +66,10 @@ static WIFI_NET_SIGNAL: Signal<CriticalSectionRawMutex, WifiNetEvent> = Signal::
 // the setup network failed), which drops the station's link
 static PROVISIONING: AtomicBool = AtomicBool::new(false);
 static PROVISIONING_FINISHED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+// Set once connected with WPA2: the key is derived from the password, unless
+// stored already (see wifi_psk)
+static PSK_WANTED: AtomicBool = AtomicBool::new(false);
 
 /// Whether provisioning is still going on: the credentials aren't saved yet,
 /// or the station's link (if up) is about to drop, so nothing should connect
@@ -197,8 +201,19 @@ pub async fn start_provisioning() {
 /// The station connected during setup, with the credentials and token saved:
 /// the gateway connection may start over it, while the setup network is
 /// still open. It stays connected when that closes.
-pub fn setup_station_connected() {
+pub fn setup_station_connected(connected: &ConnectedInfo) {
+    station_connected(connected);
     set_provisioning(false);
+}
+
+fn station_connected(connected: &ConnectedInfo) {
+    let is_wpa2 = matches!(
+        connected.authmode,
+        AuthenticationMethod::Wpa
+            | AuthenticationMethod::Wpa2Personal
+            | AuthenticationMethod::WpaWpa2Personal
+    );
+    PSK_WANTED.store(is_wpa2, Ordering::Relaxed);
 }
 
 pub fn finish_provisioning() {
@@ -258,11 +273,14 @@ pub fn access_point_config(ssid: &str) -> AccessPointConfig {
     AccessPointConfig::default().with_ssid(Ssid::try_from(ssid).expect("SSID too long"))
 }
 
+/// The station config with the stored credentials: with the key derived from
+/// the password in its place, if stored.
 fn stored_station_config(settings: &PersistSettings) -> StationConfig {
-    station_config(
-        settings.wifi_ssid.as_deref().unwrap_or_default(),
-        settings.wifi_password.as_deref().unwrap_or_default(),
-    )
+    let ssid = settings.wifi_ssid.as_deref().unwrap_or_default();
+    match &settings.wifi_psk {
+        Some(psk) => station_config(ssid, &wifi_psk::psk_hex(psk)),
+        None => station_config(ssid, settings.wifi_password.as_deref().unwrap_or_default()),
+    }
 }
 
 #[embassy_executor::task]
@@ -370,18 +388,72 @@ async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
             info!("WiFi connected successfully (channel {})", info.channel);
             profiling::once!(wifi_connected);
             stats::WIFI_CONNECTIONS.inc();
+            station_connected(&info);
             set_provisioning(false);
             true
         }
         Err(e) => {
             error!("WiFi connection failed: {:?}", e);
             leds::set_status(LedStatus::WifiError);
+            let network_missing = matches!(
+                e,
+                ConnectionError::Failed(DisconnectedInfo {
+                    reason: DisconnectReason::NoAccessPointFound,
+                    ..
+                })
+            );
+            if !network_missing {
+                drop_psk(controller).await;
+            }
             false
         }
     }
 }
 
-// Reconnects after the connection was lost
+/// Derives the key from the stored password, unless stored already. In the
+/// background, once connected: the next connections take it in its place.
+async fn derive_stored_psk() {
+    let credentials = app_settings::persist::read_settings(|set| {
+        set.wifi_psk
+            .is_none()
+            .then(|| set.wifi_ssid.clone().zip(set.wifi_password.clone()))
+            .flatten()
+    })
+    .await;
+    let Some((ssid, password)) = credentials else {
+        return;
+    };
+    let psk = wifi_psk::derive_psk(&ssid, &password).await;
+    // Unless the credentials changed meanwhile
+    let stored = app_settings::persist::update_settings_changed(|set| {
+        if set.wifi_ssid.as_ref() == Some(&ssid) && set.wifi_password.as_ref() == Some(&password) {
+            set.wifi_psk = Some(psk);
+        }
+    })
+    .await;
+    if stored {
+        info!("WiFi key derived from the password, connecting with it from now on");
+    }
+}
+
+/// Connects with the password again, not the key derived from it: the
+/// network's security may have changed (WPA3 takes the password itself). The
+/// key is derived again once connected with WPA2.
+async fn drop_psk(controller: &'static SharedWifiController) {
+    if !app_settings::persist::update_settings_changed(|set| set.wifi_psk = None).await {
+        return;
+    }
+    info!("Connecting with the WiFi password, not the key derived from it");
+    let settings = app_settings::persist::get_settings().await;
+    controller
+        .lock()
+        .await
+        .set_config(&Config::Station(stored_station_config(&settings)))
+        .expect("Failed to set STA config");
+}
+
+// Reconnects after the connection was lost. Derives the WiFi key once
+// connected
 #[embassy_executor::task]
 async fn wifi_conn_task(controller: &'static SharedWifiController) {
     loop {
@@ -391,6 +463,10 @@ async fn wifi_conn_task(controller: &'static SharedWifiController) {
         let is_connected = controller.lock().await.is_connected();
         if should_connect_ap && !is_connected {
             connect_ap();
+        }
+        if is_connected && PSK_WANTED.load(Ordering::Relaxed) {
+            PSK_WANTED.store(false, Ordering::Relaxed);
+            derive_stored_psk().await;
         }
         Timer::after(CONNECTION_CHECK_INTERVAL).await;
     }
