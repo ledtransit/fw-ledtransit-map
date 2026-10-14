@@ -1,9 +1,12 @@
 // Persistent application settings (stored in flash)
 use alloc::vec;
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use defmt::{debug, info, warn};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use esp_hal::rom::crc::crc32_le;
 use esp_storage::FlashStorage;
+use postcard::ser_flavors::Flavor;
 use serde::{Deserialize, Serialize};
 
 use super::STORE_SETTINGS_SIGNAL;
@@ -26,6 +29,8 @@ const SETTINGS_PARTITION: &str = "settings";
 const SETTINGS_MAGIC: u32 = 0xA562E1B;
 const SETTINGS_VERSION: u32 = 2;
 const SETTINGS_MAX_BYTE_SIZE: usize = 1024;
+// Before falling back to the defaults
+const READ_ATTEMPTS: usize = 3;
 
 // Environment overrides
 const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
@@ -87,11 +92,42 @@ impl Default for PersistSettings {
     }
 }
 
+// Settings too large to store were refused before: only reported once
+static TOO_LARGE_REPORTED: AtomicBool = AtomicBool::new(false);
+
+// The size and CRC of the serialized settings, computed while serializing
+struct LenCrcFlavor {
+    len: usize,
+    crc: u32,
+}
+
+impl Flavor for LenCrcFlavor {
+    type Output = (usize, u32);
+
+    fn try_push(&mut self, data: u8) -> postcard::Result<()> {
+        self.try_extend(&[data])
+    }
+
+    fn try_extend(&mut self, data: &[u8]) -> postcard::Result<()> {
+        self.len += data.len();
+        self.crc = crc32_le(self.crc, data);
+        Ok(())
+    }
+
+    fn finalize(self) -> postcard::Result<Self::Output> {
+        Ok((self.len, self.crc))
+    }
+}
+
 impl PersistSettings {
-    fn crc32(&self) -> u32 {
-        let serialized = postcard::to_vec::<_, SETTINGS_MAX_BYTE_SIZE>(self)
-            .expect("Failed to serialize settings");
-        crc32_le(0xffffffff, &serialized)
+    /// The serialized size and CRC, without a buffer: also of settings too
+    /// large to store.
+    fn serialized_len_and_crc(&self) -> Option<(usize, u32)> {
+        let flavor = LenCrcFlavor {
+            len: 0,
+            crc: 0xffffffff,
+        };
+        postcard::serialize_with_flavor(self, flavor).ok()
     }
 
     pub fn clear_wifi_credentials_and_auth(&mut self) {
@@ -178,11 +214,24 @@ static SETTINGS: Mutex<CriticalSectionRawMutex, PersistSettings> =
 
 pub async fn init(flash_store: &mut FlashStorage<'_>) {
     let mut buf = [0u8; SETTINGS_MAX_BYTE_SIZE];
-    with_data_partition(flash_store, SETTINGS_PARTITION, |storage| {
-        storage
-            .read(0, &mut buf)
-            .expect("Failed to read settings from storage")
-    });
+    let mut result = Ok(());
+    for _ in 0..READ_ATTEMPTS {
+        result = with_data_partition(flash_store, SETTINGS_PARTITION, |storage| {
+            storage.read(0, &mut buf)
+        });
+        if result.is_ok() {
+            break;
+        }
+    }
+    // Unreadable: the defaults (the zeroed buffer), the map has to be set up
+    // again. Better than a reboot loop
+    if let Err(e) = result {
+        trace::err!(
+            "Failed to read settings from flash, using defaults: {:?}",
+            e
+        );
+        buf.fill(0);
+    }
     let mut settings = deserialize_settings(&buf);
     apply_env_overrides(&mut settings);
 
@@ -256,16 +305,27 @@ where
 }
 
 /// Updates the settings, and whether that changed them. Only changes are
-/// written to flash, to save write cycles.
+/// written to flash, to save write cycles. An update that would make them too
+/// large to store is refused (e.g. a config from the server with long names):
+/// the settings stay as they were.
 pub async fn update_settings_changed<F>(f: F) -> bool
 where
     F: FnOnce(&mut PersistSettings),
 {
     let changed = {
         let mut guard = SETTINGS.lock().await;
-        let old_crc = guard.crc32();
+        let old = guard.clone();
         f(&mut guard);
-        old_crc != guard.crc32()
+        match guard.serialized_len_and_crc() {
+            Some((len, crc)) if len <= SETTINGS_MAX_BYTE_SIZE => {
+                old.serialized_len_and_crc().map(|(_, old_crc)| old_crc) != Some(crc)
+            }
+            len => {
+                *guard = old;
+                report_too_large(len.map(|(len, _)| len));
+                false
+            }
+        }
     };
     if changed {
         STORE_SETTINGS_SIGNAL.signal(());
@@ -273,15 +333,45 @@ where
     changed
 }
 
+fn report_too_large(len: Option<usize>) {
+    if TOO_LARGE_REPORTED.load(Ordering::Relaxed) {
+        warn!(
+            "Settings update refused, too large to store: {:?} bytes",
+            len
+        );
+        return;
+    }
+    // Load and store only: no atomic read-modify-write on this target
+    TOO_LARGE_REPORTED.store(true, Ordering::Relaxed);
+    trace::err!(
+        "Settings update refused, too large to store: {:?} bytes (max {})",
+        len,
+        SETTINGS_MAX_BYTE_SIZE
+    );
+}
+
+/// Writes the settings to flash. If that fails, they're kept in RAM, and
+/// written with the next change.
 pub(super) async fn store_settings(flash_store: &mut FlashStorage<'_>) {
     let settings = SETTINGS.lock().await;
-    let serialized = postcard::to_vec::<_, SETTINGS_MAX_BYTE_SIZE>(&*settings)
-        .expect("Failed to serialize settings");
-    with_data_partition(flash_store, SETTINGS_PARTITION, |storage| {
-        storage
-            .write(0, &serialized)
-            .expect("Failed to write settings to storage")
+    let serialized = match postcard::to_vec::<_, SETTINGS_MAX_BYTE_SIZE>(&*settings) {
+        Ok(serialized) => serialized,
+        Err(_) => {
+            trace::err!("Failed to serialize settings");
+            return;
+        }
+    };
+    let written = with_data_partition(flash_store, SETTINGS_PARTITION, |storage| {
+        storage.write(0, &serialized)
     });
+    if let Err(e) = written {
+        trace::err!("Failed to write settings to flash: {:?}", e);
+        return;
+    }
     stats::SETTINGS_WRITES.inc();
-    debug!("Settings stored to flash (v{})", settings.version);
+    debug!(
+        "Settings stored to flash (v{}, {} bytes)",
+        settings.version,
+        serialized.len()
+    );
 }

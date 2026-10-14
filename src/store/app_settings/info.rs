@@ -14,7 +14,7 @@ use esp_storage::FlashStorage;
 use serde::{Deserialize, Serialize};
 
 use super::{STORE_DEVICE_INFO_SIGNAL, session};
-use crate::{config::CONFIG, store::with_data_partition};
+use crate::{config::CONFIG, store::with_data_partition, trace};
 
 const INFO_PARTITION: &str = "info";
 const DEVICE_INFO_MAGIC: u32 = 0xEDA1BEE;
@@ -191,20 +191,20 @@ pub(super) async fn write_to_flash(flash_store: &mut FlashStorage<'_>) {
         installs,
     };
     let serialized = postcard::to_vec::<_, DEVICE_INFO_MAX_SIZE>(&info)
-        .expect("Failed to serialize device info");
+        .expect("Device info fits: its size is fixed");
     let written = with_data_partition(flash_store, INFO_PARTITION, |storage| {
         let mut stored = [0u8; DEVICE_INFO_MAX_SIZE];
         let stored = &mut stored[..serialized.len()];
         if storage.read(0, stored).is_ok() && *stored == *serialized {
-            return false;
+            return Ok(false);
         }
-        storage
-            .write(0, &serialized)
-            .expect("Failed to write device info to storage");
-        true
+        storage.write(0, &serialized)?;
+        Ok(true)
     });
-    if written {
-        info!("Device info stored to flash");
+    match written {
+        Ok(true) => info!("Device info stored to flash"),
+        Ok(false) => {}
+        Err(e) => trace::err!("Failed to store device info to flash: {:?}", e),
     }
 }
 

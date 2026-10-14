@@ -115,9 +115,10 @@ async fn write_and_verify(
 ) -> Result<(), OtaError> {
     let mut flash_store = flash_store.lock().await;
     let mut pt_mem = [0u8; PARTITION_TABLE_MAX_LEN];
-    let mut ota = OtaUpdater::new(flash_store.deref_mut(), &mut pt_mem).unwrap();
+    let mut ota =
+        OtaUpdater::new(flash_store.deref_mut(), &mut pt_mem).map_err(OtaError::FlashReadError)?;
     // The bank that isn't running: factory/ota1 -> ota0, ota0 -> ota1
-    let (mut partition, _) = ota.next_partition().unwrap();
+    let (mut partition, _) = ota.next_partition().map_err(OtaError::FlashReadError)?;
 
     let start_instant = Instant::now();
     erase_image_area(&mut partition, image_size)

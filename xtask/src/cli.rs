@@ -146,10 +146,12 @@ impl LogLevel {
     }
 
     /// DEFMT_LOG filter for this level. Below info, the esp-hal DMA driver
-    /// logs every transfer (the LED output), so it stays at info
+    /// logs every transfer (the LED output), so esp-hal stays at info. It's
+    /// capped for the whole crate: defmt ignores a module entry that's less
+    /// verbose than its crate's level (e.g. `debug,esp_hal::dma=info`)
     pub fn defmt_filter(&self) -> String {
         match self {
-            LogLevel::Debug | LogLevel::Trace => format!("{},esp_hal::dma=info", self.as_str()),
+            LogLevel::Debug | LogLevel::Trace => format!("{},esp_hal=info", self.as_str()),
             _ => self.as_str().to_string(),
         }
     }

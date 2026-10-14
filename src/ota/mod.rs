@@ -262,10 +262,13 @@ async fn install_update(
     free_heap_for_download().await;
 
     match download::download_to_flash(update, sta_stack, tls, ca_cert, flash_store, sha).await {
-        Ok(()) => {
-            boot::activate_next_partition(flash_store).await;
-            reboot().await;
-        }
+        Ok(()) => match boot::activate_next_partition(flash_store).await {
+            Ok(()) => reboot().await,
+            Err(e) => {
+                trace::err!("OTA update failed, can't boot the new image: {:?}", e);
+                on_update_failed().await;
+            }
+        },
         Err(e) => {
             trace::err!("OTA update failed: {:?}", e);
             on_update_failed().await;

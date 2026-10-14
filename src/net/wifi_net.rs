@@ -40,6 +40,7 @@ use crate::{
         app_settings::{self, persist::PersistSettings},
         transit_data,
     },
+    trace,
 };
 
 const STA_SOCKET_COUNT: usize = 4;
@@ -55,6 +56,9 @@ const RESTART_AFTER_FAILURES: u32 = 3;
 // until connected: the password may just have changed
 const REBOOT_AFTER_FAILURES: u32 = 9;
 const MAX_RECOVERY_REBOOTS: u32 = 2;
+// Attempts to start the setup network before rebooting
+const SETUP_NETWORK_ATTEMPTS: u32 = 3;
+const SETUP_NETWORK_RETRY_DELAY: Duration = Duration::from_secs(1);
 // Elliptic-curve operations in a row in a TLS handshake (about 10 ms for P-256)
 const TLS_ECP_MAX_OPS: u32 = 200;
 
@@ -352,14 +356,30 @@ async fn start_setup_network(
 
     // Access point and station: the station connects to the user's network
     // during setup
-    controller
-        .lock()
-        .await
-        .set_config(&Config::AccessPointStation(
-            StationConfig::default(),
-            access_point_config(ap_ssid),
-        ))
-        .expect("Failed to set AP+STA config");
+    let config = Config::AccessPointStation(StationConfig::default(), access_point_config(ap_ssid));
+    for _ in 0..SETUP_NETWORK_ATTEMPTS {
+        if set_config(&mut *controller.lock().await, &config) {
+            return;
+        }
+        Timer::after(SETUP_NETWORK_RETRY_DELAY).await;
+    }
+    // Without its network, the map can't be set up: setup mode starts again
+    // after the reboot (no credentials)
+    error!("Setup network failed to start, rebooting");
+    Timer::after(Duration::from_millis(100)).await;
+    esp_hal::system::software_reset();
+}
+
+/// Applies the config, false if the driver failed to (logged). The station
+/// connects again with the next attempt (see wifi_net_task).
+fn set_config(controller: &mut WifiController<'static>, config: &Config) -> bool {
+    match controller.set_config(config) {
+        Ok(()) => true,
+        Err(e) => {
+            trace::err!("Failed to set the WiFi config: {:?}", e);
+            false
+        }
+    }
 }
 
 /// Closes the setup network. The station, connected during setup, stays
@@ -379,11 +399,10 @@ async fn finish_setup_network(controller: &'static SharedWifiController) {
     // connects again
     set_provisioning(true);
     let settings = app_settings::persist::get_settings().await;
-    controller
-        .lock()
-        .await
-        .set_config(&Config::Station(stored_station_config(&settings)))
-        .expect("Failed to set STA config");
+    set_config(
+        &mut *controller.lock().await,
+        &Config::Station(stored_station_config(&settings)),
+    );
     connect_ap();
 }
 
@@ -492,9 +511,10 @@ async fn restart_wifi(controller: &'static SharedWifiController) {
     if result != 0 {
         error!("Failed to stop the WiFi: {}", result);
     }
-    controller
-        .set_config(&Config::Station(stored_station_config(&settings)))
-        .expect("Failed to set STA config");
+    set_config(
+        &mut controller,
+        &Config::Station(stored_station_config(&settings)),
+    );
 }
 
 /// Whether another recovery reboot is allowed, counting it.
@@ -549,11 +569,10 @@ async fn drop_psk(controller: &'static SharedWifiController) {
     }
     info!("Connecting with the WiFi password, not the key derived from it");
     let settings = app_settings::persist::get_settings().await;
-    controller
-        .lock()
-        .await
-        .set_config(&Config::Station(stored_station_config(&settings)))
-        .expect("Failed to set STA config");
+    set_config(
+        &mut *controller.lock().await,
+        &Config::Station(stored_station_config(&settings)),
+    );
 }
 
 // Reconnects after the connection was lost. Derives the WiFi key once

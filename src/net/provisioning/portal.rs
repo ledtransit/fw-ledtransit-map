@@ -21,7 +21,8 @@ use crate::{
     store::app_settings,
 };
 
-const MAX_SCANNED_NETWORKS: usize = 16;
+const MAX_SCANNED_NETWORKS: usize = 20;
+const SCAN_JSON_MAX_LEN: usize = 1200;
 const RESPONSE_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct HttpHandler {
@@ -139,7 +140,7 @@ where
     // The strongest networks
     ap_list.sort_by_key(|ap| core::cmp::Reverse(ap.signal_strength));
     ap_list.truncate(MAX_SCANNED_NETWORKS);
-    let ap_list_api: heapless::Vec<AccessPointInfoApi, MAX_SCANNED_NETWORKS> = ap_list
+    let mut ap_list_api: heapless::Vec<AccessPointInfoApi, MAX_SCANNED_NETWORKS> = ap_list
         .iter()
         .map(|ap| AccessPointInfoApi {
             ssid: heapless::String::try_from(ap.ssid.as_str()).unwrap_or_default(),
@@ -147,8 +148,14 @@ where
             open: u8::from(ap.auth_method == Some(AuthenticationMethod::None)),
         })
         .collect();
-    let json: serde_json_core::heapless::String<1200> =
-        serde_json_core::to_string(&ap_list_api).expect("Failed to serialize AP list to JSON");
+    // Escaped SSIDs (quotes, control characters) can take up to 6 bytes per
+    // character: the weakest networks are left out until the list fits
+    let json: serde_json_core::heapless::String<SCAN_JSON_MAX_LEN> = loop {
+        match serde_json_core::to_string(&ap_list_api) {
+            Ok(json) => break json,
+            Err(_) => _ = ap_list_api.pop(),
+        }
+    };
     send_response(conn, 200, "OK", json.as_bytes(), Some("application/json")).await
 }
 

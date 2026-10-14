@@ -114,13 +114,16 @@ async fn on_config(config: DeviceConfig) {
         ota::cancel();
     }
 
-    let changed = app_settings::persist::update_settings_changed(move |set| {
+    let changed = app_settings::persist::update_settings_changed(|set| {
         set.config = config.clone();
     })
     .await;
     if changed {
         info!("WS: Updated device config from server");
         transit_data::on_config_updated().await;
+    } else if app_settings::persist::read_settings(|set| set.config != config).await {
+        // Refused (too large to store): the server gets the config in use back
+        send_config();
     }
 }
 
