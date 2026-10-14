@@ -20,10 +20,9 @@ pub fn spawn(
     spawner: Spawner,
     ap_stack: Stack<'static>,
     controller: &'static SharedWifiController,
-    ap_ssid: &'static heapless::String<32>,
 ) {
     for task_id in 0..TCP_SOCKET_COUNT {
-        spawner.spawn(http_server_task(ap_stack, controller, ap_ssid, task_id as u64).unwrap());
+        spawner.spawn(http_server_task(ap_stack, controller, task_id as u64).unwrap());
     }
 }
 
@@ -31,7 +30,6 @@ pub fn spawn(
 async fn http_server_task(
     ap_stack: Stack<'static>,
     controller: &'static SharedWifiController,
-    ap_ssid: &'static heapless::String<32>,
     task_id: u64,
 ) {
     let tcp_bufs = TcpBuffers::<TCP_BUF_POOL_SIZE, TCP_TX_SIZE, TCP_RX_SIZE>::new();
@@ -42,7 +40,7 @@ async fn http_server_task(
         .expect("Failed to bind HTTP server socket");
     let timed_acceptor = WithTimeout::new(SOCKET_ACCEPT_TIMEOUT_MS, acceptor);
 
-    let http_handler = HttpHandler::new(controller, ap_ssid);
+    let http_handler = HttpHandler::new(controller);
     let mut http_buf = [0u8; HTTP_BUF_SIZE];
 
     loop {

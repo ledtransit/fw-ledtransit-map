@@ -24,7 +24,9 @@ use esp_radio::wifi::{
     sta::{ConnectedInfo, DisconnectedInfo, StationConfig},
 };
 use esp_wifi_sys::include::{
-    esp_wifi_set_mode, esp_wifi_stop, wifi_mode_t_WIFI_MODE_NULL, wifi_mode_t_WIFI_MODE_STA,
+    esp_wifi_get_config, esp_wifi_set_config, esp_wifi_set_mode, esp_wifi_stop,
+    wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK, wifi_config_t, wifi_interface_t_WIFI_IF_STA,
+    wifi_mode_t_WIFI_MODE_NULL, wifi_mode_t_WIFI_MODE_STA,
 };
 use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion, X509};
 
@@ -180,13 +182,7 @@ pub async fn spawn(
 
     spawner.spawn(net_stack_task(ap_runner).unwrap());
     spawner.spawn(net_stack_task(sta_runner).unwrap());
-    provisioning::spawn(
-        spawner,
-        ap_stack,
-        AP_GATEWAY_IP,
-        shared_controller,
-        device_name,
-    );
+    provisioning::spawn(spawner, ap_stack, AP_GATEWAY_IP, shared_controller);
     ws_client::spawn(spawner, sta_stack, shared_controller, tls, ca_cert);
     ota::spawn(spawner, sta_stack, tls, ca_cert, flash_store, sha_peri);
 
@@ -401,6 +397,37 @@ fn close_access_point(_controller: &WifiController<'static>) -> Result<(), ()> {
     if result != 0 {
         error!("Failed to close the setup network: {}", result);
         return Err(());
+    }
+    Ok(())
+}
+
+/// Sets the station's credentials (as `station_config`) while the setup
+/// network is open, leaving that as it is: `set_config` applies its config too,
+/// which restarts it (the driver never takes it for unchanged), dropping the
+/// phone on the setup page.
+pub fn set_setup_station_credentials(
+    _controller: &WifiController<'static>,
+    ssid: &str,
+    password: &str,
+) -> Result<(), i32> {
+    // SAFETY: Called with the controller locked, the WiFi started. The rest of
+    // the station's config stays as the controller set it
+    let result = unsafe {
+        let mut config: wifi_config_t = core::mem::zeroed();
+        let result = esp_wifi_get_config(wifi_interface_t_WIFI_IF_STA, &mut config);
+        if result != 0 {
+            return Err(result);
+        }
+        // The credentials always fit: they're kept as at most 32 and 64 bytes
+        config.sta.ssid = [0; 32];
+        config.sta.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
+        config.sta.password = [0; 64];
+        config.sta.password[..password.len()].copy_from_slice(password.as_bytes());
+        config.sta.threshold.authmode = wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK;
+        esp_wifi_set_config(wifi_interface_t_WIFI_IF_STA, &mut config)
+    };
+    if result != 0 {
+        return Err(result);
     }
     Ok(())
 }

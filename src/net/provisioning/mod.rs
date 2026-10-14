@@ -23,8 +23,7 @@ pub fn spawn(
     ap_stack: Stack<'static>,
     gateway_ip: Ipv4Addr,
     controller: &'static SharedWifiController,
-    ap_ssid: &'static heapless::String<32>,
 ) {
     dhcp_server::spawn(spawner, ap_stack, gateway_ip);
-    http_server::spawn(spawner, ap_stack, controller, ap_ssid);
+    http_server::spawn(spawner, ap_stack, controller);
 }

@@ -11,7 +11,7 @@ use edge_net::http::{
 };
 use embassy_time::{Duration, with_timeout};
 use embedded_io_async::{Read, Write};
-use esp_radio::wifi::{AuthenticationMethod, Config, scan::ScanConfig};
+use esp_radio::wifi::{AuthenticationMethod, scan::ScanConfig};
 use serde::{Deserialize, Serialize};
 
 use super::static_files::{self, StaticFile};
@@ -26,7 +26,6 @@ const RESPONSE_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct HttpHandler {
     controller: &'static SharedWifiController,
-    ap_ssid: &'static heapless::String<32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,14 +45,8 @@ struct ConnectWifiRequestApi {
 }
 
 impl HttpHandler {
-    pub fn new(
-        controller: &'static SharedWifiController,
-        ap_ssid: &'static heapless::String<32>,
-    ) -> Self {
-        Self {
-            controller,
-            ap_ssid,
-        }
+    pub fn new(controller: &'static SharedWifiController) -> Self {
+        Self { controller }
     }
 }
 
@@ -88,7 +81,7 @@ impl Handler for HttpHandler {
             Method::Post => match path {
                 "/api/identify" => handle_identify(conn).await?,
                 "/api/scan-wifi" => handle_scan(conn, self.controller).await?,
-                "/api/connect-wifi" => handle_connect(conn, self.controller, self.ap_ssid).await?,
+                "/api/connect-wifi" => handle_connect(conn, self.controller).await?,
                 _ => send_response(conn, 404, "Not Found", &[], None).await?,
             },
             _ => send_response(conn, 405, "Method Not Allowed", &[], None).await?,
@@ -162,7 +155,6 @@ where
 async fn handle_connect<T, const N: usize>(
     conn: &mut Connection<'_, T, N>,
     controller: &'static SharedWifiController,
-    ap_ssid: &str,
 ) -> Result<(), Error<T::Error>>
 where
     T: Read + Write,
@@ -205,15 +197,13 @@ where
     leds::set_pixels(LedPixels::FadeOut).await;
     leds::set_status(LedStatus::ConnectingWifi);
 
-    let set_config_result = controller
-        .lock()
-        .await
-        .set_config(&Config::AccessPointStation(
-            wifi_net::station_config(&request.ssid, &request.password),
-            wifi_net::access_point_config(ap_ssid),
-        ));
-    if let Err(e) = set_config_result {
-        info!("Set config error: {:?}", e);
+    let set_credentials_result = wifi_net::set_setup_station_credentials(
+        &*controller.lock().await,
+        &request.ssid,
+        &request.password,
+    );
+    if let Err(e) = set_credentials_result {
+        info!("Set station credentials error: {}", e);
         return respond_connect_failed(conn).await;
     }
 
