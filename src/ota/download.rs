@@ -35,7 +35,7 @@ use crate::{
     trace,
 };
 
-pub(super) const OTA_PARTITION_SIZE: usize = 0x14F000; // partitions.csv factory/ota0/ota1
+pub const OTA_PARTITION_SIZE: usize = 0x14F000; // partitions.csv factory/ota0/ota1
 const OTA_CHUNK_SIZE: usize = 4 * 1024; // Must be multiple of flash sector size (4KB) for efficient writes
 // Erased ahead of the download, a block at a time: much faster than by sector
 const ERASE_BLOCK_SIZE: usize = 64 * 1024;
@@ -46,7 +46,7 @@ const TCP_RX_SIZE: usize = 16 * 1024;
 const TCP_TX_SIZE: usize = 512;
 type OtaTcpBuffers = TcpBuffers<1, TCP_TX_SIZE, TCP_RX_SIZE>;
 // On the heap, only while downloading
-pub(super) const TCP_BUFFERS_HEAP_SIZE: usize = size_of::<OtaTcpBuffers>();
+pub const TCP_BUFFERS_HEAP_SIZE: usize = size_of::<OtaTcpBuffers>();
 const HTTP_MAX_NUM_HEADERS: usize = 32;
 const HTTP_BUFFER_SIZE: usize = 512;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -57,7 +57,7 @@ type FlashStorageRegion<'a> = FlashRegion<'a, 'static>;
 
 /// Downloads the image into the inactive bank and checks it against the
 /// signed hash, read back from flash.
-pub(super) async fn download_to_flash(
+pub async fn download_to_flash(
     update: &DeviceUpdate,
     stack: Stack<'_>,
     tls: &Tls<'_>,

@@ -68,6 +68,11 @@ pub struct BuildArgs {
     )]
     pub gateway_port: Option<u16>,
     #[arg(
+        long = "updates-host",
+        help = "Update server host override to download firmware updates from [default: built-in]"
+    )]
+    pub updates_host: Option<String>,
+    #[arg(
         long = "ssl-enable",
         help = "Enable SSL override for API access [default: built-in]"
     )]

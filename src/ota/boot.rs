@@ -22,7 +22,7 @@ const BOOT_CHECK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 type OtaFlashUpdater<'a> = OtaUpdater<'a, 'static>;
 
 // Separate from the update events: must not replace a pending one, nor be replaced
-pub(super) static OTA_CONFIRM: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub static OTA_CONFIRM: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static BOOT_CONFIRMED: AtomicBool = AtomicBool::new(false);
 
 /// The boot check passed: the firmware booted, connected to WiFi,
@@ -40,7 +40,7 @@ pub fn confirm_boot() {
 /// Reboots an image that doesn't pass the boot check in time, e.g. because it
 /// can't connect: the bootloader then boots the previous one.
 #[embassy_executor::task]
-pub(super) async fn boot_check_timeout_task(flash_store: &'static SharedFlashStorage) {
+pub async fn boot_check_timeout_task(flash_store: &'static SharedFlashStorage) {
     Timer::after(BOOT_CHECK_TIMEOUT).await;
     if BOOT_CONFIRMED.load(Ordering::Relaxed) {
         return;
@@ -63,7 +63,7 @@ async fn with_ota_updater<R>(
 }
 
 /// Reports whether the running image is the factory one, or a rolled back one.
-pub(super) async fn init_boot_partition(flash_store: &SharedFlashStorage) {
+pub async fn init_boot_partition(flash_store: &SharedFlashStorage) {
     let (is_factory, is_rolled_back) = with_ota_updater(flash_store, |ota| {
         let current_part = ota.selected_partition().unwrap();
         let current_state = ota.current_ota_state();
@@ -89,7 +89,7 @@ pub(super) async fn init_boot_partition(flash_store: &SharedFlashStorage) {
     app_settings::info::store();
 }
 
-pub(super) async fn confirm_current_partition(flash_store: &SharedFlashStorage) {
+pub async fn confirm_current_partition(flash_store: &SharedFlashStorage) {
     with_ota_updater(flash_store, |ota| {
         if let Ok(state @ (OtaImageState::New | OtaImageState::PendingVerify)) =
             ota.current_ota_state()
@@ -104,7 +104,7 @@ pub(super) async fn confirm_current_partition(flash_store: &SharedFlashStorage) 
     .await;
 }
 
-pub(super) async fn set_factory_boot_partition(flash_store: &SharedFlashStorage) {
+pub async fn set_factory_boot_partition(flash_store: &SharedFlashStorage) {
     with_ota_updater(flash_store, |ota| {
         info!("Set factory partition as boot partition");
         // Clears both OTA data entries. Only marking the running image aborted
@@ -115,7 +115,7 @@ pub(super) async fn set_factory_boot_partition(flash_store: &SharedFlashStorage)
 }
 
 /// Boots the bank just written from now on, as a new image (unconfirmed).
-pub(super) async fn activate_next_partition(flash_store: &SharedFlashStorage) {
+pub async fn activate_next_partition(flash_store: &SharedFlashStorage) {
     with_ota_updater(flash_store, |ota| {
         info!("Activating OTA boot partition");
         ota.activate_next_partition().unwrap();

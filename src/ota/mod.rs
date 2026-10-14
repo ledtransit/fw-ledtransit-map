@@ -225,6 +225,15 @@ async fn install_update(
         return;
     }
 
+    if !verify::is_from_updates_host(update) {
+        trace::err!(
+            "OTA update refused, image URL not on https://{}",
+            verify::UPDATES_HOST
+        );
+        on_update_failed().await;
+        return;
+    }
+
     // Before downloading: only signed metadata gets to overwrite the other bank
     // (the previous firmware)
     if let Err(e) = verify::verify_signature(update) {

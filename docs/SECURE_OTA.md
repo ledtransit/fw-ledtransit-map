@@ -56,8 +56,10 @@ new bank after all checks below have passed.
 
 ## Secure channel
 
-- Images are downloaded over HTTPS only, on port 443.
-- The server certificate must be valid for the image URL's hostname, chained to
+- Images are downloaded over HTTPS only, on port 443, and only from
+  `updates.ledtransit.com`: an update with an image URL on any other host is
+  refused before the download.
+- The server certificate must be valid for that hostname, chained to
   a certificate in the CA bundle compiled into the firmware: the Let's Encrypt
   roots and ECDSA intermediates (mbedtls, verification required). The hostname
   is also sent as SNI.
@@ -86,7 +88,8 @@ SHA-256 of this message:
 - The product ID binds the image to the hardware: a correctly signed image for
   another product (other LED layout, other pins) is refused.
 - The image URL isn't signed and doesn't need to be: whatever it serves must
-  match the signed hash.
+  match the signed hash. Its host is fixed (see above), so the offer can't
+  make maps contact other servers.
 
 ## Version policy
 

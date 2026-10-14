@@ -169,6 +169,7 @@ fn development_env(args: &BuildArgs, product_id: &ProductId) -> Vec<(&'static st
             "GATEWAY_PORT",
             args.gateway_port.map(|port| port.to_string()),
         ),
+        ("UPDATES_HOST", args.updates_host.clone()),
         ("SSL_ENABLED", args.ssl_enable.map(|ssl| ssl.to_string())),
     ];
     env.extend(
