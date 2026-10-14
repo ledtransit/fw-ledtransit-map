@@ -1,3 +1,4 @@
+# Dockerfile for building the firmware in an Ubuntu container.
 FROM ubuntu:24.04
 
 ENV PATH="/root/.cargo/bin:${PATH}"

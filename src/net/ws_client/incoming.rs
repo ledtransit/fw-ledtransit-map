@@ -198,7 +198,7 @@ async fn on_command(command: i32) {
 }
 
 /// Runs a command once the owner confirmed it on the map (see confirmation).
-pub(super) async fn on_command_confirmed(command: DeviceCommand) {
+pub async fn on_command_confirmed(command: DeviceCommand) {
     match command {
         DeviceCommand::FactoryReset => {
             info!("WS: Factory reset confirmed, resetting device settings...");
@@ -222,7 +222,7 @@ pub(super) async fn on_command_confirmed(command: DeviceCommand) {
     }
 }
 
-pub(super) async fn on_transit_data(data: TransitData, payload_len: usize, received_in: Duration) {
+pub async fn on_transit_data(data: TransitData, payload_len: usize, received_in: Duration) {
     profiling::once!(first_transit_data_decoded);
     info!(
         "WS: Received transit data update: {} lines, {} stops, {} vehicles, {} disruptions ({} bytes in {} ms, {} bytes in memory)",

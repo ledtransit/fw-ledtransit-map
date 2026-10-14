@@ -20,7 +20,8 @@ use crate::{
     util::NonMax,
 };
 
-pub const RENDERER_FPS: u32 = 1; // No need to render more than once per second, since vehicle departure times and delays have a granularity of 1 second
+// No need to render more than once per second, since vehicle departure times and delays have a granularity of 1 second
+pub const RENDERER_FPS: u32 = 1;
 
 static RENDER_NOW_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 

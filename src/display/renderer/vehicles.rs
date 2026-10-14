@@ -55,7 +55,7 @@ struct VehicleStyle<'a> {
     lines_count: usize,
 }
 
-pub(super) async fn render_vehicles() {
+pub async fn render_vehicles() {
     let mut store_guard = transit_data::get_mut().await;
     let Some(store) = store_guard.as_mut() else {
         return;
