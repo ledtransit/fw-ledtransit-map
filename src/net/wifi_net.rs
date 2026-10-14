@@ -13,6 +13,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, s
 use embassy_time::{Duration, Timer};
 use esp_hal::{
     peripherals::{SHA, WIFI},
+    ram,
     rng::{Rng, Trng},
 };
 use esp_radio::wifi::{
@@ -22,7 +23,9 @@ use esp_radio::wifi::{
     event::{EventInfo, EventSubscriber},
     sta::{ConnectedInfo, DisconnectedInfo, StationConfig},
 };
-use esp_wifi_sys::include::{esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA};
+use esp_wifi_sys::include::{
+    esp_wifi_set_mode, esp_wifi_stop, wifi_mode_t_WIFI_MODE_NULL, wifi_mode_t_WIFI_MODE_STA,
+};
 use mbedtls_rs::{Certificate, ClientSessionConfig, SessionError, Tls, TlsVersion, X509};
 
 use crate::{
@@ -41,6 +44,15 @@ const STA_SOCKET_COUNT: usize = 4;
 const AP_GATEWAY_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 4, 1);
 const CONNECT_RETRY_DELAY: Duration = Duration::from_secs(3);
 const CONNECTION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+// Failed connections in a row after which the WiFi restarts: clears the
+// driver's connection state, and calibrates the radio again
+const RESTART_AFTER_FAILURES: u32 = 3;
+// Failed connections in a row with the network there (not the network
+// missing) after which the device reboots: what fixed connections that kept
+// failing (handshake timeouts) otherwise. At most this many reboots in a row,
+// until connected: the password may just have changed
+const REBOOT_AFTER_FAILURES: u32 = 9;
+const MAX_RECOVERY_REBOOTS: u32 = 2;
 // Elliptic-curve operations in a row in a TLS handshake (about 10 ms for P-256)
 const TLS_ECP_MAX_OPS: u32 = 200;
 
@@ -66,6 +78,12 @@ static WIFI_NET_SIGNAL: Signal<CriticalSectionRawMutex, WifiNetEvent> = Signal::
 // the setup network failed), which drops the station's link
 static PROVISIONING: AtomicBool = AtomicBool::new(false);
 static PROVISIONING_FINISHED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+// Recovery reboots in a row (see REBOOT_AFTER_FAILURES), kept across resets
+// until connected: a count and its complement, RTC memory holds garbage after
+// power on, which doesn't pass for one
+#[ram(unstable(rtc_fast, persistent))]
+static mut RECOVERY_REBOOTS: [u32; 2] = [0, !0];
 
 // Set once connected with WPA2: the key is derived from the password, unless
 // stored already (see wifi_psk)
@@ -207,6 +225,7 @@ pub fn setup_station_connected(connected: &ConnectedInfo) {
 }
 
 fn station_connected(connected: &ConnectedInfo) {
+    set_recovery_reboots(0);
     let is_wpa2 = matches!(
         connected.authmode,
         AuthenticationMethod::Wpa
@@ -288,13 +307,30 @@ async fn wifi_net_task(
     controller: &'static SharedWifiController,
     ap_ssid: &'static heapless::String<32>,
 ) {
+    // Failed connections in a row, and those with the network there
+    let mut failures = 0;
+    let mut failures_with_network = 0;
     loop {
         match WIFI_NET_SIGNAL.wait().await {
             WifiNetEvent::StartProvisioning => start_setup_network(controller, ap_ssid).await,
             WifiNetEvent::FinishProvisioning => finish_setup_network(controller).await,
             WifiNetEvent::ConnectToAp => {
-                if connect_to_ap(controller).await {
+                let Err(error) = connect_to_ap(controller).await else {
+                    failures = 0;
+                    failures_with_network = 0;
                     continue;
+                };
+                failures += 1;
+                if !is_network_missing(&error) {
+                    failures_with_network += 1;
+                }
+                if failures_with_network >= REBOOT_AFTER_FAILURES && take_recovery_reboot() {
+                    error!("WiFi keeps failing to connect, rebooting");
+                    Timer::after(Duration::from_millis(100)).await;
+                    esp_hal::system::software_reset();
+                }
+                if failures % RESTART_AFTER_FAILURES == 0 {
+                    restart_wifi(controller).await;
                 }
                 Timer::after(CONNECT_RETRY_DELAY).await;
                 if !WIFI_NET_SIGNAL.signaled() {
@@ -369,15 +405,15 @@ fn close_access_point(_controller: &WifiController<'static>) -> Result<(), ()> {
     Ok(())
 }
 
-/// Connects the station, if not connected. False if that failed.
-async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
+/// Connects the station, if not connected.
+async fn connect_to_ap(controller: &'static SharedWifiController) -> Result<(), ConnectionError> {
     info!("Connecting to WiFi access point");
     leds::set_status(LedStatus::ConnectingWifi);
 
     if controller.lock().await.is_connected() {
         info!("WiFi already connected");
         set_provisioning(false);
-        return true;
+        return Ok(());
     }
 
     profiling::count!(wifi_connect_attempts);
@@ -390,24 +426,65 @@ async fn connect_to_ap(controller: &'static SharedWifiController) -> bool {
             stats::WIFI_CONNECTIONS.inc();
             station_connected(&info);
             set_provisioning(false);
-            true
+            Ok(())
         }
         Err(e) => {
             error!("WiFi connection failed: {:?}", e);
             leds::set_status(LedStatus::WifiError);
-            let network_missing = matches!(
-                e,
-                ConnectionError::Failed(DisconnectedInfo {
-                    reason: DisconnectReason::NoAccessPointFound,
-                    ..
-                })
-            );
-            if !network_missing {
+            if !is_network_missing(&e) {
                 drop_psk(controller).await;
             }
-            false
+            Err(e)
         }
     }
+}
+
+fn is_network_missing(error: &ConnectionError) -> bool {
+    matches!(
+        error,
+        ConnectionError::Failed(DisconnectedInfo {
+            reason: DisconnectReason::NoAccessPointFound,
+            ..
+        })
+    )
+}
+
+/// Stops and starts the WiFi, as station with the stored credentials: clears
+/// the driver's connection state, and calibrates the radio again.
+async fn restart_wifi(controller: &'static SharedWifiController) {
+    info!("Restarting WiFi");
+    let settings = app_settings::persist::get_settings().await;
+    let mut controller = controller.lock().await;
+    // SAFETY: Called with the controller locked. The driver's stop event
+    // updates the controller's state; without a mode, setting the config
+    // starts the driver again
+    let result = unsafe {
+        esp_wifi_stop();
+        esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_NULL)
+    };
+    if result != 0 {
+        error!("Failed to stop the WiFi: {}", result);
+    }
+    controller
+        .set_config(&Config::Station(stored_station_config(&settings)))
+        .expect("Failed to set STA config");
+}
+
+/// Whether another recovery reboot is allowed, counting it.
+fn take_recovery_reboot() -> bool {
+    // SAFETY: Only accessed from the executor's tasks, never across an await
+    let [count, complement] = unsafe { RECOVERY_REBOOTS };
+    let count = if complement == !count { count } else { 0 };
+    if count >= MAX_RECOVERY_REBOOTS {
+        return false;
+    }
+    set_recovery_reboots(count + 1);
+    true
+}
+
+fn set_recovery_reboots(count: u32) {
+    // SAFETY: Only accessed from the executor's tasks, never across an await
+    unsafe { RECOVERY_REBOOTS = [count, !count] };
 }
 
 /// Derives the key from the stored password, unless stored already. In the
