@@ -201,6 +201,7 @@ A factory reset can also be started from the app, confirmed with a button press 
 
 ## Technical Reference
 
+- [Client Protocol](docs/CLIENT_PROTOCOL.md): connection to the gateway (Protocol Buffers over WebSocket over TLS) and its messages
 - [Secure Over-the-Air Updates](docs/SECURE_OTA.md): signed updates, dual bank, rollback and factory reset
 - [WiFi Provisioning](docs/WIFI_PROVISIONING.md): setup network, setup page and claiming the device for an account
 
