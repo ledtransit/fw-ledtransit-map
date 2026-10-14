@@ -225,6 +225,15 @@ async fn install_update(
         return;
     }
 
+    if !verify::is_from_updates_host(update) {
+        trace::err!(
+            "OTA update refused, image URL not on https://{}",
+            verify::UPDATES_HOST
+        );
+        on_update_failed().await;
+        return;
+    }
+
     // Before downloading: only signed metadata gets to overwrite the other bank
     // (the previous firmware)
     if let Err(e) = verify::verify_signature(update) {
@@ -253,10 +262,13 @@ async fn install_update(
     free_heap_for_download().await;
 
     match download::download_to_flash(update, sta_stack, tls, ca_cert, flash_store, sha).await {
-        Ok(()) => {
-            boot::activate_next_partition(flash_store).await;
-            reboot().await;
-        }
+        Ok(()) => match boot::activate_next_partition(flash_store).await {
+            Ok(()) => reboot().await,
+            Err(e) => {
+                trace::err!("OTA update failed, can't boot the new image: {:?}", e);
+                on_update_failed().await;
+            }
+        },
         Err(e) => {
             trace::err!("OTA update failed: {:?}", e);
             on_update_failed().await;

@@ -11,7 +11,7 @@ use edge_net::http::{
 };
 use embassy_time::{Duration, with_timeout};
 use embedded_io_async::{Read, Write};
-use esp_radio::wifi::{AuthenticationMethod, Config, scan::ScanConfig};
+use esp_radio::wifi::{AuthenticationMethod, scan::ScanConfig};
 use serde::{Deserialize, Serialize};
 
 use super::static_files::{self, StaticFile};
@@ -21,12 +21,12 @@ use crate::{
     store::app_settings,
 };
 
-const MAX_SCANNED_NETWORKS: usize = 16;
+const MAX_SCANNED_NETWORKS: usize = 20;
+const SCAN_JSON_MAX_LEN: usize = 1200;
 const RESPONSE_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct HttpHandler {
     controller: &'static SharedWifiController,
-    ap_ssid: &'static heapless::String<32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,14 +46,8 @@ struct ConnectWifiRequestApi {
 }
 
 impl HttpHandler {
-    pub fn new(
-        controller: &'static SharedWifiController,
-        ap_ssid: &'static heapless::String<32>,
-    ) -> Self {
-        Self {
-            controller,
-            ap_ssid,
-        }
+    pub fn new(controller: &'static SharedWifiController) -> Self {
+        Self { controller }
     }
 }
 
@@ -88,7 +82,7 @@ impl Handler for HttpHandler {
             Method::Post => match path {
                 "/api/identify" => handle_identify(conn).await?,
                 "/api/scan-wifi" => handle_scan(conn, self.controller).await?,
-                "/api/connect-wifi" => handle_connect(conn, self.controller, self.ap_ssid).await?,
+                "/api/connect-wifi" => handle_connect(conn, self.controller).await?,
                 _ => send_response(conn, 404, "Not Found", &[], None).await?,
             },
             _ => send_response(conn, 405, "Method Not Allowed", &[], None).await?,
@@ -146,7 +140,7 @@ where
     // The strongest networks
     ap_list.sort_by_key(|ap| core::cmp::Reverse(ap.signal_strength));
     ap_list.truncate(MAX_SCANNED_NETWORKS);
-    let ap_list_api: heapless::Vec<AccessPointInfoApi, MAX_SCANNED_NETWORKS> = ap_list
+    let mut ap_list_api: heapless::Vec<AccessPointInfoApi, MAX_SCANNED_NETWORKS> = ap_list
         .iter()
         .map(|ap| AccessPointInfoApi {
             ssid: heapless::String::try_from(ap.ssid.as_str()).unwrap_or_default(),
@@ -154,15 +148,20 @@ where
             open: u8::from(ap.auth_method == Some(AuthenticationMethod::None)),
         })
         .collect();
-    let json: serde_json_core::heapless::String<1200> =
-        serde_json_core::to_string(&ap_list_api).expect("Failed to serialize AP list to JSON");
+    // Escaped SSIDs (quotes, control characters) can take up to 6 bytes per
+    // character: the weakest networks are left out until the list fits
+    let json: serde_json_core::heapless::String<SCAN_JSON_MAX_LEN> = loop {
+        match serde_json_core::to_string(&ap_list_api) {
+            Ok(json) => break json,
+            Err(_) => _ = ap_list_api.pop(),
+        }
+    };
     send_response(conn, 200, "OK", json.as_bytes(), Some("application/json")).await
 }
 
 async fn handle_connect<T, const N: usize>(
     conn: &mut Connection<'_, T, N>,
     controller: &'static SharedWifiController,
-    ap_ssid: &str,
 ) -> Result<(), Error<T::Error>>
 where
     T: Read + Write,
@@ -205,35 +204,33 @@ where
     leds::set_pixels(LedPixels::FadeOut).await;
     leds::set_status(LedStatus::ConnectingWifi);
 
-    let set_config_result = controller
-        .lock()
-        .await
-        .set_config(&Config::AccessPointStation(
-            wifi_net::station_config(&request.ssid, &request.password),
-            wifi_net::access_point_config(ap_ssid),
-        ));
-    if let Err(e) = set_config_result {
-        info!("Set config error: {:?}", e);
+    let set_credentials_result = wifi_net::set_setup_station_credentials(
+        &*controller.lock().await,
+        &request.ssid,
+        &request.password,
+    );
+    if let Err(e) = set_credentials_result {
+        info!("Set station credentials error: {}", e);
         return respond_connect_failed(conn).await;
     }
 
     info!("Starting WiFi connection");
-    let connect_result = controller.lock().await.connect_async().await;
-    if let Err(e) = connect_result {
-        info!("WiFi start error: {:?}", e);
-        return respond_connect_failed(conn).await;
-    }
+    let connected = match controller.lock().await.connect_async().await {
+        Ok(connected) => connected,
+        Err(e) => {
+            info!("WiFi start error: {:?}", e);
+            return respond_connect_failed(conn).await;
+        }
+    };
 
     info!("WiFi started");
     app_settings::persist::update_settings(move |set| {
-        set.wifi_ssid = Some(heapless::String::try_from(request.ssid.as_str()).unwrap_or_default());
-        set.wifi_password =
-            Some(heapless::String::try_from(request.password.as_str()).unwrap_or_default());
+        set.set_wifi_credentials(&request.ssid, &request.password);
         set.prov_token = Some(request.token.clone());
     })
     .await;
     // The gateway connection starts meanwhile, while the page gets its answer
-    wifi_net::setup_station_connected();
+    wifi_net::setup_station_connected(&connected);
     respond_connected(conn).await
 }
 

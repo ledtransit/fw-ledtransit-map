@@ -39,21 +39,28 @@ pub struct ConnectedDevice {
     pub is_factory: bool,
 }
 
-pub fn detect() -> Result<ConnectedDevice> {
+/// Reads the connected device's info. It boots again afterwards, unless
+/// `stay_in_bootloader`: then it waits in its serial bootloader (for flashing).
+pub fn detect(stay_in_bootloader: bool) -> Result<ConnectedDevice> {
     let info_path = Path::new(DEVICE_INFO_FILE);
     let tmp_dir = info_path.parent().unwrap();
     fs::create_dir_all(tmp_dir)
         .with_context(|| format!("Failed to create temporary directory at {:?}", tmp_dir))?;
 
-    tools::espflash(&[
+    let offset = format!("0x{:X}", DEVICE_INFO_OFFSET);
+    let mut args = vec![
         "read-flash",
         "--chip",
         "esp32c3",
         "--skip-update-check",
-        &format!("0x{:X}", DEVICE_INFO_OFFSET),
+        &offset,
         DEVICE_INFO_READ_SIZE,
         DEVICE_INFO_FILE,
-    ])?;
+    ];
+    if stay_in_bootloader {
+        args.extend(["--after", "no-reset"]);
+    }
+    tools::espflash(&args)?;
     let data = fs::read(info_path).context("Failed to read product info from flash")?;
     let info: DeviceInfo =
         postcard::from_bytes(&data).context("Failed to deserialize product info from flash")?;

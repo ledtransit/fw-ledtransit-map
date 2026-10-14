@@ -23,7 +23,7 @@ const MAX_OPEN_NODES: usize = 128;
 
 type DisruptionPathFinder = PathFinder<MAX_OPEN_NODES, MAX_PATH_LEN>;
 
-pub(super) async fn render_disruptions() {
+pub async fn render_disruptions() {
     let mut store_guard = transit_data::get_mut().await;
     let Some(store) = store_guard.as_mut() else {
         return;

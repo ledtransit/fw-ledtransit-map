@@ -22,19 +22,21 @@ pub async fn init(flash_peri: FLASH<'static>) -> &'static SharedFlashStorage {
 }
 
 /// Runs `f` on the data partition with the label (see partitions.csv).
+/// `Error::Invalid` if the partition table can't be read or has no such
+/// partition.
 pub fn with_data_partition<'d, R>(
     flash_store: &mut FlashStorage<'d>,
     label: &str,
-    f: impl FnOnce(&mut FlashRegion<'_, 'd>) -> R,
-) -> R {
+    f: impl FnOnce(&mut FlashRegion<'_, 'd>) -> Result<R, partitions::Error>,
+) -> Result<R, partitions::Error> {
     let mut pt_mem = [0u8; PARTITION_TABLE_MAX_LEN];
-    let partition_table = partitions::read_partition_table(flash_store, &mut pt_mem).unwrap();
+    let partition_table = partitions::read_partition_table(flash_store, &mut pt_mem)?;
     let mut storage = partition_table
         .iter()
         .find(|part| {
             matches!(part.partition_type(), PartitionType::Data(_)) && part.label_as_str() == label
         })
-        .unwrap_or_else(|| panic!("Partition {} not found", label))
+        .ok_or(partitions::Error::Invalid)?
         .as_flash_region(flash_store);
     f(&mut storage)
 }

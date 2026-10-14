@@ -2,7 +2,7 @@
 edition = "2024"
 name = "fw-ledtransit-map"
 rust-version = "1.88"
-version = "1.2.0"
+version = "1.2.1"
 license = "GPL-3.0-only"
 authors = ["Tim Holzhey <info@ledtransit.com>"]
 
@@ -49,6 +49,8 @@ smoltcp = { version = "0.13.1", default-features = false, features = [
 ] }
 critical-section = "1.2.0"
 static_cell = "2.1.1"
+# The WiFi pre-shared key (see wifi_psk)
+sha1_smol = "1.0.1"
 rgb = "0.8.53"
 smart-leds = "0.4.0"
 envparse = "0.1.0"

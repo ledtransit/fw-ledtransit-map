@@ -1,9 +1,8 @@
-# `cargo build` builds the firmware for the ESP32-C3 (use `cargo xtask build`
-# to build it for a product). The tools build for the host (see xtask and
-# prov_server)
+# ESP32-C3 target
 [build]
 target = "riscv32imc-unknown-none-elf"
 
+# Runner: Flash and attach RTT via probe-rs
 [target.riscv32imc-unknown-none-elf]
 runner = "probe-rs run --chip=esp32c3 --preverify --always-print-stacktrace --no-location --catch-hardfault --idf-partition-table=partitions.csv --idf-bootloader=assets/boot_image/bootloader.bin"
 rustflags = [

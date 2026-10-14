@@ -4,11 +4,7 @@ use crate::{config::CONFIG, trace, util::NonMax};
 const MAX_STOP_TO_LOC_DIST_DEG_SQ_E7: i64 = 4_000_000_000; // < 1km
 
 /// The pixel location of the station. None if it isn't on the map.
-pub(super) fn station_location(
-    stop_idx: u16,
-    latitude_e7: i32,
-    longitude_e7: i32,
-) -> Option<NonMax<u16>> {
+pub fn station_location(stop_idx: u16, latitude_e7: i32, longitude_e7: i32) -> Option<NonMax<u16>> {
     let Some(loc_id) = lookup_nearest_location(latitude_e7, longitude_e7) else {
         trace::err!(
             "Stop ID {} at ({}, {}) has no nearby pixel location",

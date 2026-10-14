@@ -11,8 +11,10 @@ implementation is in [`src/net/`](../src/net/).
    `LEDTransit-XXXXXX` (from its MAC address) and serves the setup page at
    `http://192.168.4.1`. Its status LED blinks blue, and snakes wander over
    the map.
-2. **Setup page:** the LEDTransit app opens the page in a new tab, with a
-   short-lived provisioning token for the owner's account. The owner joins the
+2. **Setup page:** the owner starts the setup in the LEDTransit app at
+   [app.ledtransit.com/setup](https://app.ledtransit.com/setup), which opens
+   the page in a new tab, with a short-lived provisioning token for their
+   account. The owner joins the
    map's network, picks their WiFi from the page's scan and enters the
    password.
 3. **Connect:** the map connects to that WiFi, saves the credentials and the

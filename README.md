@@ -1,5 +1,5 @@
 <div>
-<img src="assets/images/logo-white.svg" alt="LEDTransit Logo" height="32" align="right"/>
+<img src="assets/images/logo.svg" alt="LEDTransit Logo" height="32" align="right"/>
 <h1>Firmware for the LEDTransit Maps</h1>
 </div>
 
@@ -111,7 +111,7 @@ A standard 500 mA USB 2.0 port is sufficient to power the device for small brigh
 
 ## Flash the firmware
 
-Build, flash and monitor the firmware with the `run` command. If no product is specified, the command auto-detects the connected device and flashes the corresponding firmware.
+Build, flash and monitor the firmware with the `run` command. If no product is specified, the command auto-detects the connected device and flashes the corresponding firmware. The device waits in its bootloader from detection until flashing, so it boots only once, with the new firmware (or its old one again if the build fails).
 
 ```sh
 cargo xtask run # <product>
@@ -201,6 +201,7 @@ A factory reset can also be started from the app, confirmed with a button press 
 
 ## Technical Reference
 
+- [Client Protocol](docs/CLIENT_PROTOCOL.md): connection to the gateway (Protocol Buffers over WebSocket over TLS) and its messages
 - [Secure Over-the-Air Updates](docs/SECURE_OTA.md): signed updates, dual bank, rollback and factory reset
 - [WiFi Provisioning](docs/WIFI_PROVISIONING.md): setup network, setup page and claiming the device for an account
 
