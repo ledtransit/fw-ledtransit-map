@@ -28,7 +28,9 @@ use crate::{
 const SETTINGS_PARTITION: &str = "settings";
 const SETTINGS_MAGIC: u32 = 0xA562E1B;
 const SETTINGS_VERSION: u32 = 2;
-const SETTINGS_MAX_BYTE_SIZE: usize = 1024;
+// Half the settings partition (see partitions.csv): the rest stays free for
+// other data
+const SETTINGS_MAX_BYTE_SIZE: usize = 2048;
 // Before falling back to the defaults
 const READ_ATTEMPTS: usize = 3;
 
@@ -213,7 +215,8 @@ static SETTINGS: Mutex<CriticalSectionRawMutex, PersistSettings> =
     Mutex::new(persist_settings_default());
 
 pub async fn init(flash_store: &mut FlashStorage<'_>) {
-    let mut buf = [0u8; SETTINGS_MAX_BYTE_SIZE];
+    // On the heap: only needed at boot
+    let mut buf = vec![0u8; SETTINGS_MAX_BYTE_SIZE];
     let mut result = Ok(());
     for _ in 0..READ_ATTEMPTS {
         result = with_data_partition(flash_store, SETTINGS_PARTITION, |storage| {
@@ -354,12 +357,20 @@ fn report_too_large(len: Option<usize>) {
 /// written with the next change.
 pub(super) async fn store_settings(flash_store: &mut FlashStorage<'_>) {
     let settings = SETTINGS.lock().await;
-    let serialized = match postcard::to_vec::<_, SETTINGS_MAX_BYTE_SIZE>(&*settings) {
-        Ok(serialized) => serialized,
-        Err(_) => {
-            trace::err!("Failed to serialize settings");
-            return;
+    // Their actual size, on the heap: the partition's size would take a lot
+    // of the stack
+    let serialized = match settings.serialized_len_and_crc() {
+        Some((len, _)) if len <= SETTINGS_MAX_BYTE_SIZE => {
+            let mut buf = vec![0u8; len];
+            postcard::to_slice(&*settings, &mut buf)
+                .is_ok()
+                .then_some(buf)
         }
+        _ => None,
+    };
+    let Some(serialized) = serialized else {
+        trace::err!("Failed to serialize settings");
+        return;
     };
     let written = with_data_partition(flash_store, SETTINGS_PARTITION, |storage| {
         storage.write(0, &serialized)
