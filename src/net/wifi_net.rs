@@ -208,6 +208,10 @@ pub async fn spawn(
 
 pub async fn start_provisioning() {
     app_settings::persist::update_settings(|set| set.clear_wifi_credentials_and_auth()).await;
+    // Without credentials the update can't be downloaded: the server offers it
+    // again once provisioned
+    ota::cancel();
+    app_settings::session::update_settings(|set| set.firmware_update_available = None).await;
     ws_client::quit(Ok(()));
     transit_data::reset().await;
     WIFI_NET_SIGNAL.signal(WifiNetEvent::StartProvisioning);
