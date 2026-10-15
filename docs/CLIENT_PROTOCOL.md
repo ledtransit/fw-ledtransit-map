@@ -146,14 +146,15 @@ difference between two messages.
 ### `command`
 
 A `DeviceCommand` from the app: reboot, identify, reset settings, start the
-firmware update, LED test, reconnect.
+firmware update, LED test, reconnect, clear the pending confirmation.
 
 `FACTORY_RESET`, `REPROVISION` and `DISABLE_REMOTE_CONTROL` only run once the
 owner confirms them on the map, with a short press on any button within 30
 seconds. Meanwhile, `status.command_awaiting_confirmation` and
 `telemetry.command_confirmation_deadline_unix_timestamp` tell the app what's
-pending. A compromised gateway or account can't wipe the map's setup or lock
-the owner out on its own ([`confirmation.rs`](../src/net/ws_client/confirmation.rs)).
+pending. `CLEAR_PENDING_CONFIRMATION` drops the pending command, e.g. when the
+user cancels it in the app. A compromised gateway or account can't wipe the
+map's setup or lock the owner out on its own ([`confirmation.rs`](../src/net/ws_client/confirmation.rs)).
 
 ### `errors`
 

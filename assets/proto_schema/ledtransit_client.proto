@@ -144,7 +144,8 @@ message DeviceTelemetry {
 }
 
 // FACTORY_RESET, REPROVISION and DISABLE_REMOTE_CONTROL only run once
-// confirmed with a button press on the map within 30 s
+// confirmed with a button press on the map within 30 s.
+// CLEAR_PENDING_CONFIRMATION drops the command awaiting confirmation, if any
 enum DeviceCommand {
     DEVICE_COMMAND_REBOOT = 0;
     DEVICE_COMMAND_IDENTIFY = 1;
@@ -155,6 +156,7 @@ enum DeviceCommand {
     DEVICE_COMMAND_TEST_LEDS = 6;
     DEVICE_COMMAND_RECONNECT = 7;
     DEVICE_COMMAND_DISABLE_REMOTE_CONTROL = 8;
+    DEVICE_COMMAND_CLEAR_PENDING_CONFIRMATION = 9;
 }
 
 // Once per boot, for development: when each step from reset to the first
