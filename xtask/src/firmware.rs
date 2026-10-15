@@ -19,6 +19,8 @@ pub const PARTITION_TABLE_PATH: &str = "partitions.csv";
 // partitions.csv
 const OTADATA_OFFSET: u32 = 0xD000;
 const OTADATA_SIZE: u32 = 0x2000;
+const SETTINGS_OFFSET: u32 = 0x2AF000;
+const SETTINGS_SIZE: u32 = 0x1000;
 
 /// Builds the development firmware, and with `run` also flashes it and
 /// monitors its log.
@@ -66,7 +68,9 @@ fn reset_device() {
     }
 }
 
-/// Builds the factory image (from a clean, tagged commit) and installs it.
+/// Builds the factory image (from a clean, tagged commit) and installs it, on
+/// a device reset as by a factory reset: it boots the factory image and
+/// starts in setup mode.
 pub fn install_factory(args: FactoryArgs) -> Result<()> {
     log::info!(
         "Installing factory firmware for product: {:?}",
@@ -74,6 +78,10 @@ pub fn install_factory(args: FactoryArgs) -> Result<()> {
     );
     tools::ensure_clean_tagged_commit(&package_version()?)?;
     cargo_build(&release_env(&args.product_id))?;
+    // Flashing writes the factory partition: reset the boot selection, else
+    // the bootloader keeps booting an installed OTA update
+    erase_otadata()?;
+    erase_settings()?;
     flash(ELF_PATH)?;
     tools::probe_rs(&["reset"])
 }
@@ -232,12 +240,26 @@ fn erase_otadata() -> Result<()> {
         OTADATA_OFFSET,
         OTADATA_SIZE
     );
+    erase_region(OTADATA_OFFSET, OTADATA_SIZE)
+}
+
+/// Erases the WiFi credentials and configuration, as a factory reset does.
+fn erase_settings() -> Result<()> {
+    log::info!(
+        "Erasing settings (offset=0x{:X}, size=0x{:X})",
+        SETTINGS_OFFSET,
+        SETTINGS_SIZE
+    );
+    erase_region(SETTINGS_OFFSET, SETTINGS_SIZE)
+}
+
+fn erase_region(offset: u32, size: u32) -> Result<()> {
     // Leaves the device in its serial bootloader, for flashing
     tools::espflash(&[
         "erase-region",
         "--after",
         "no-reset",
-        &OTADATA_OFFSET.to_string(),
-        &OTADATA_SIZE.to_string(),
+        &offset.to_string(),
+        &size.to_string(),
     ])
 }

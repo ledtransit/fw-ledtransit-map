@@ -158,7 +158,7 @@ All tasks run through `cargo xtask` ([xtask/](xtask/)):
 | `cargo xtask prov-server` | Rebuild the setup page's files into `assets/prov_public` after changing `prov_server/public` |
 | `cargo xtask bootloader` | Rebuild the bootloader into `assets/boot_image` (requires ESP-IDF) |
 | `cargo xtask release <product> [--install] [--staging]` | Build a signed over-the-air release into `target/ota`, from a clean commit tagged with the package version (e.g. `1.1.1`). `--staging` allows any commit, with a warning, to test a release before tagging it. Requires LEDTransit's private signing key |
-| `cargo xtask factory <product>` | Build and install the factory firmware, from a clean commit tagged with the package version |
+| `cargo xtask factory <product>` | Build and install the factory firmware, from a clean commit tagged with the package version. Resets the device as a factory reset does: it boots the factory firmware, with its settings erased |
 
 ## Buttons
 
