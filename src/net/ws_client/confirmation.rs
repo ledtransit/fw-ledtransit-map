@@ -36,8 +36,8 @@ pub async fn confirm_command() -> bool {
     answer(true).await
 }
 
-/// Drops the command awaiting confirmation, if any: it came over a connection
-/// that ended.
+/// Drops the command awaiting confirmation, if any: the server cleared it, or
+/// it came over a connection that ended.
 pub async fn cancel() {
     answer(false).await;
 }

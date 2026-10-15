@@ -155,6 +155,10 @@ async fn on_command(command: i32) {
             );
             confirmation::request(command);
         }
+        DeviceCommand::ClearPendingConfirmation => {
+            info!("WS: Received clear pending confirmation command from server");
+            confirmation::cancel().await;
+        }
         DeviceCommand::ResetConfigDefaults => {
             info!(
                 "WS: Received reset config to defaults command from server, resetting device config..."
