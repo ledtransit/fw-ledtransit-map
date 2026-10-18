@@ -141,11 +141,12 @@ The factory firmware is a known-good fallback. A factory reset erases the
 settings and the boot selection (`otadata`), so the map boots the factory
 firmware in setup mode, and then updates itself to the latest version again.
 
-- **From the firmware:** long press on Up and Down together, or from the app.
-- **From the bootloader:** hold the Down button for 5 seconds while the map
-  starts. This works even when the installed firmware doesn't (crash loop,
-  hang). The middle button can't be used here: holding it at power-on puts the
-  chip into USB download mode.
+- **On the map:** hold the Down button while plugging in the power, and keep
+  holding it for at least 5 seconds. The bootloader does the reset, so this
+  works even when the installed firmware doesn't (crash loop, hang). The
+  middle button can't be used here: holding it at power-on puts the chip into
+  USB download mode.
+- **From the app:** confirmed with a button press on the map.
 
 ## Bootloader
 
