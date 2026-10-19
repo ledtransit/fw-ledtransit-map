@@ -62,7 +62,7 @@ async fn confirmation_task() {
             // doesn't count for this one
             ANSWER_SIGNAL.reset();
             let deadline_unix_timestamp =
-                time::get_unix_timestamp_seconds().await + CONFIRMATION_TIMEOUT.as_secs() as u32;
+                time::unix_seconds() + CONFIRMATION_TIMEOUT.as_secs() as u32;
             set_pending(Some(PendingConfirmation {
                 command,
                 deadline_unix_timestamp,

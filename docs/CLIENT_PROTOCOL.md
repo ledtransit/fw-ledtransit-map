@@ -73,12 +73,15 @@ sequenceDiagram
     opt Newer firmware available
         Gateway->>Map: device_update
     end
-    Note over Map,Gateway: From here: transit_data about every 30 s,<br/>telemetry every 15 s, pings every 10 s
+    Note over Map,Gateway: From here: transit_data about every 30 s,<br/>telemetry every 15 s, pings every 10 s,<br/>time_sync bursts every 10 min
+    Map->>Gateway: time_sync (4 times, 500 ms apart)
+    Gateway->>Map: time_sync (each right away)
     Map->>Gateway: profiling (once per boot, after the first transit data painted)
 ```
 
 The map sends `status` as soon as the connection is up, independently of what
-the gateway sends. It answers `server_info` with `device_info` and its
+the gateway sends, and its first `time_sync` once the transit data sent on join
+arrived (or after 3 s): a reply would otherwise wait behind it. It answers `server_info` with `device_info` and its
 `config`. The gateway checks for a firmware update once it knows the firmware
 version from `device_info`.
 
@@ -98,15 +101,38 @@ Each WebSocket message is a `ClientMessage` with exactly one `payload`:
 | `errors` | Map → Gateway | Shortly after errors were logged |
 | `transit_data` | Gateway → Map | On connect and on each feed update |
 | `echo` | Both | From the app, sent back by the map |
+| `time_sync` | Both | Map: bursts on connect and every 10 min. Gateway: right away in reply |
 | `profiling` | Map → Gateway | Once per boot |
 
 ### `server_info`
 
-Time sync: Unix time, plus the local time of day, weekday, sunrise and sunset
-in the map's timezone (`config.timezone_iana`, UTC if unset). Sunrise and
-sunset are `0` without `config.location_coord`. The map keeps them as offsets
-to its uptime, for the timer and the sunlight auto brightness
-([`automation.rs`](../src/automation.rs)).
+Unix time, plus the local time of day, weekday, sunrise and sunset in the
+map's timezone (`config.timezone_iana`, UTC if unset). Sunrise and sunset are
+`0` without `config.location_coord`. The map takes its UTC offset from them,
+for the timer and the sunlight auto brightness
+([`automation.rs`](../src/automation.rs)). `unix_timestamp` only sets the clock
+until the first `time_sync` reply, so transit data can be shown right away.
+
+### `time_sync`
+
+Measures the map's clock, like NTP, so maps next to each other animate in sync
+([`time.rs`](../src/time.rs)). The map sends its uptime; the gateway replies
+right away with the Unix times it received and sent it at, in microseconds,
+from a clock kept with NTP. It reads it ahead of the other messages (not
+waiting for their handlers) and sends the reply ahead of queued ones. From its
+uptime when the reply arrived, the map works out the round trip and its clock
+offset, accurate to half the round trip.
+
+The map sends them in bursts of 4, 500 ms apart, on connect and every 10 min
+(keeping the crystals' drift between maps to about 10 ms), and follows the most
+accurate of each burst (the shortest round trip): a reply delayed one way (e.g.
+behind transit data, or by WiFi) would skew the offset by half the delay. The
+first reply after boot steps the clock right away. Later, a burst's best is
+followed unless the measurement followed is still more accurate (allowing for
+crystal drift since), and slews the clock: it runs up to 1 % faster or slower
+until corrected, so the animations don't jump. The renderer's frames start on
+the clock's seconds and the painter's on its 25 ms grid, and the disruption
+animations are timed by it, the same on every map.
 
 ### `device_info`
 

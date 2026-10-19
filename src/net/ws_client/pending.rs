@@ -12,6 +12,7 @@ use embassy_sync::{
 #[repr(u8)]
 pub enum StateMessage {
     Pong,
+    TimeSync,
     Status,
     Config,
     Info,
@@ -21,9 +22,11 @@ pub enum StateMessage {
 }
 
 impl StateMessage {
-    // Sending order when several are pending: the keepalive first
-    const BY_PRIORITY: [Self; 7] = [
+    // Sending order when several are pending: the keepalive first, then the
+    // time sync, which measures the round trip from when it's sent
+    const BY_PRIORITY: [Self; 8] = [
         Self::Pong,
+        Self::TimeSync,
         Self::Status,
         Self::Config,
         Self::Info,

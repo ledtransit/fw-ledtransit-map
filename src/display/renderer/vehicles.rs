@@ -2,7 +2,6 @@
 // it shows there
 use core::iter;
 
-use embassy_time::Instant;
 use rgb::RGB8;
 use smart_leds::hsv::Hsv;
 
@@ -20,7 +19,7 @@ use crate::{
         app_settings,
         transit_data::{self, MovementSegment, Stop, TransitData, VehicleMovement, ViaStop},
     },
-    time, trace,
+    trace,
     util::{NonMax, lerp, rgb8_from_packed},
 };
 
@@ -55,14 +54,14 @@ struct VehicleStyle<'a> {
     lines_count: usize,
 }
 
-pub async fn render_vehicles() {
+/// For the frame starting at the Unix time.
+pub async fn render_vehicles(frame_unix_ms: u64) {
     let mut store_guard = transit_data::get_mut().await;
     let Some(store) = store_guard.as_mut() else {
         return;
     };
 
-    let now_timestamp_secs = time::get_unix_timestamp_seconds().await;
-    let now_instant_ms = Instant::now().as_millis() as u32;
+    let now_timestamp_secs = (frame_unix_ms / 1000) as u32;
     let config = app_settings::persist::get_settings().await.config;
     let style = VehicleStyle {
         config: &config,
@@ -91,7 +90,7 @@ pub async fn render_vehicles() {
         let rendered = &mut rendered_vehicles[vehicle_idx];
         rendered.prev = prev_rendered.cur;
         rendered.cur = PixelState::NONE;
-        rendered.last_updated_instant_ms = now_instant_ms;
+        rendered.last_updated_unix_ms = frame_unix_ms;
 
         let Some(position) = vehicle_position(
             vehicle_idx,
@@ -120,7 +119,7 @@ pub async fn render_vehicles() {
         if prev_rendered.cur != pixel_state {
             rendered.prev = prev_rendered.cur;
             rendered.cur = pixel_state;
-            rendered.last_updated_instant_ms = now_instant_ms;
+            rendered.last_updated_unix_ms = frame_unix_ms;
         } else {
             *rendered = prev_rendered;
         }
@@ -133,11 +132,11 @@ pub async fn render_vehicles() {
 
     let rendered_state = &mut store.state.rendered_state;
     rendered_state
-        .rendered_any_first_at_instant_ms
-        .get_or_insert(now_instant_ms);
+        .rendered_any_first_at_unix_ms
+        .get_or_insert(frame_unix_ms);
     rendered_state
-        .rendered_data_first_at_instant_ms
-        .get_or_insert(now_instant_ms);
+        .rendered_data_first_at_unix_ms
+        .get_or_insert(frame_unix_ms);
 
     store.stats.num_vehicles_available = num_vehicles_available;
     store.stats.num_vehicles_visible = num_vehicles_visible;

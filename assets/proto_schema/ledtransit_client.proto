@@ -15,11 +15,13 @@ message ClientMessage {
         TransitData transit_data = 10; // Server -> Client
         Echo echo = 11; // Server <-> Client
         DeviceProfiling profiling = 12; // Client -> Server
+        TimeSync time_sync = 13; // Client <-> Server
     }
 }
 
-// On join and hourly: clock sync. Times of day are seconds since local
-// midnight, in config.timezone_iana
+// On join and hourly: local time. Times of day are seconds since local
+// midnight, in config.timezone_iana. unix_timestamp sets the clock until the
+// first TimeSync
 message ServerInfo {
     required uint32 unix_timestamp = 1;
     required uint32 local_time_of_day_seconds = 2;
@@ -141,6 +143,19 @@ message DeviceTelemetry {
     required uint32 wifi_last_disconnect_reason = 41; // ESP-IDF wifi_err_reason_t, 0 if none
     required uint32 button_presses_total = 42;
     required float chip_temperature_celsius = 43; // Internal sensor, ±1 °C within -10..80 °C, NaN if unavailable
+    // The TimeSync the clock follows, unset before the first
+    optional uint32 time_sync_round_trip_micros = 44;
+    optional sint32 time_sync_correction_micros = 45; // Clock error that following it corrected
+    optional uint32 time_sync_measured_unix_timestamp = 46;
+    optional uint32 time_sync_uncertainty_micros = 47; // Of the clock now: half the round trip, plus the crystal's possible drift since
+    optional sint32 time_sync_slew_remaining_micros = 48; // Of the correction, still being slewed
+    // Time sync since boot
+    optional uint32 time_sync_last_burst_round_trip_micros = 49; // Shortest of the last burst, followed or not. Unset before the first burst
+    required uint32 time_sync_requests_total = 50;
+    required uint32 time_sync_replies_total = 51; // Valid ones
+    required uint32 time_sync_bursts_total = 52; // Finished
+    required uint32 time_sync_corrections_total = 53; // TimeSyncs followed
+    required uint32 time_sync_steps_total = 54; // Corrections that stepped the clock (the first, or over 1 s) instead of slewing it
 }
 
 // FACTORY_RESET, REPROVISION and DISABLE_REMOTE_CONTROL only run once
@@ -235,6 +250,16 @@ message TransitData {
     repeated Stop stops = 5;
     repeated VehicleMovement vehicle_movements = 6;
     repeated Disruption disruptions = 7;
+}
+
+// Clock measurement, like NTP. The client sends it in bursts (4 times, 500 ms
+// apart) on connect and every 10 min, with only client_send_micros_since_boot set.
+// The server sends it back right away, with the unix times it received and
+// sent it at: read and answered ahead of other messages. Times in microseconds
+message TimeSync {
+    required uint64 client_send_micros_since_boot = 1;
+    optional uint64 server_receive_unix_timestamp_micros = 2;
+    optional uint64 server_send_unix_timestamp_micros = 3;
 }
 
 // Sent back unchanged, for reachability and latency tests from the app

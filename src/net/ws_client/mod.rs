@@ -49,7 +49,7 @@ use crate::{
         app_settings,
         transit_data::{self, TransitData},
     },
-    trace,
+    time, trace,
 };
 use client_proto::{ClientMessage, Echo, client_message::Payload};
 pub use confirmation::confirm_command;
@@ -96,6 +96,13 @@ const FRAME_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(10);
 // sending it, e.g. with the light off)
 const TELEMETRY_INTERVAL_ACTIVE: Duration = Duration::from_secs(15);
 const TELEMETRY_INTERVAL_STALE: Duration = Duration::from_secs(5 * 60);
+// Time syncs in bursts, on connect and every 10 min: the most accurate of a burst
+// (the shortest round trip) is followed. The first after the transit data
+// sent on join, which a reply would wait behind
+const TIME_SYNC_BURST_LEN: u32 = 4;
+const TIME_SYNC_BURST_SPACING: Duration = Duration::from_millis(500);
+const TIME_SYNC_INTERVAL: Duration = Duration::from_secs(10 * 60);
+const TIME_SYNC_JOIN_TRANSIT_DATA_TIMEOUT: Duration = Duration::from_secs(3);
 
 // Messages to send: the latest state (each sent once however often requested
 // while pending), and echoes (each sent, in order)
@@ -103,6 +110,7 @@ static STATE_MESSAGES: PendingMessages = PendingMessages::new();
 static ECHO_CHANNEL: Channel<CriticalSectionRawMutex, Echo, 4> = Channel::new();
 static WS_CLIENT_QUIT_SIGNAL: Signal<CriticalSectionRawMutex, Result<(), WsClientError>> =
     Signal::new();
+static TRANSIT_DATA_RECEIVED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 // After a TLS error connecting, the next attempt allows TLS 1.3 (and the other
 // way around): for a gateway that refuses TLS 1.2 (see wifi_net::tls_session_config)
 static ALLOW_TLS13: AtomicBool = AtomicBool::new(false);
@@ -176,6 +184,10 @@ pub async fn send_echo(echo: Echo) {
 
 pub fn send_info() {
     STATE_MESSAGES.request(StateMessage::Info);
+}
+
+fn send_time_sync() {
+    STATE_MESSAGES.request(StateMessage::TimeSync);
 }
 
 pub fn send_pong() {
@@ -443,19 +455,20 @@ async fn run(
 
     STATE_MESSAGES.clear();
     ECHO_CHANNEL.clear();
+    TRANSIT_DATA_RECEIVED.reset();
     send_status();
 
     // Until the connection closes, fails, or the application quits it
     let result = match select4(
         receive_messages(&mut rx, buf),
         send_pending_messages(&mut tx, controller),
-        send_telemetry_periodically(),
+        select(send_telemetry_periodically(), sync_time_periodically()),
         WS_CLIENT_QUIT_SIGNAL.wait(),
     )
     .await
     {
         Either4::First(result) | Either4::Second(result) | Either4::Fourth(result) => result,
-        Either4::Third(never) => match never {},
+        Either4::Third(Either::First(never) | Either::Second(never)) => match never {},
     };
     info!("WebSocket connection closed, shutting down ({:?})", result);
     stats::on_gateway_disconnected();
@@ -543,17 +556,20 @@ where
                 if received.is_err() && is_transit_data {
                     stats::TRANSIT_DATA_ERRORS.inc();
                 }
-                let received_in = header_received_at.elapsed();
                 match received? {
                     Received::Message(message) => {
-                        incoming::handle_message(message, payload_len, received_in).await
+                        incoming::handle_message(message, payload_len, header_received_at).await
                     }
                     Received::TransitData(data) => {
+                        let received_in = header_received_at.elapsed();
                         profiling::once!(first_transit_data_header_received, header_received);
                         profiling::once!(first_transit_data_payload_received);
                         incoming::on_transit_data(data, payload_len, received_in).await
                     }
                     Received::Ignored => {}
+                }
+                if is_transit_data {
+                    TRANSIT_DATA_RECEIVED.signal(());
                 }
             }
             FrameType::Ping => {
@@ -671,6 +687,7 @@ where
                 frames::send_pong(tx, &mut rng).await?;
                 continue;
             }
+            StateMessage::TimeSync => outgoing::time_sync(),
             StateMessage::Errors if trace::get_errors().is_empty() => continue,
             StateMessage::Errors => outgoing::errors().await,
             StateMessage::Status => outgoing::status().await,
@@ -683,6 +700,24 @@ where
             },
         };
         frames::send_binary(tx, &message, &mut rng).await?;
+    }
+}
+
+async fn sync_time_periodically() -> Infallible {
+    // Without it (e.g. the light off for long), after the timeout
+    with_timeout(
+        TIME_SYNC_JOIN_TRANSIT_DATA_TIMEOUT,
+        TRANSIT_DATA_RECEIVED.wait(),
+    )
+    .await
+    .ok();
+    loop {
+        for _ in 0..TIME_SYNC_BURST_LEN {
+            send_time_sync();
+            Timer::after(TIME_SYNC_BURST_SPACING).await;
+        }
+        time::finish_sync_burst();
+        Timer::after(TIME_SYNC_INTERVAL).await;
     }
 }
 

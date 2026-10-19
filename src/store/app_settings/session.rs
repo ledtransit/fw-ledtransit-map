@@ -17,10 +17,6 @@ pub struct SessionSettings {
     pub light_on: bool,
     pub light_on_override: Option<bool>, // If set, overrides timer and other logic to force light on or off
     pub night_timer_active: bool, // Whether the day-night timer is currently driving the light off (night mode)
-    pub is_time_synced: bool,     // Whether the device has successfully synced time with the server
-    pub unix_epoch_offset_secs: u32, // Unix time minus system uptime in seconds
-    pub local_time_of_day_offset_secs: u32, // Seconds since last local midnight minus system uptime in seconds
-    pub local_weekday_number: u32,          // Local weekday number, 0 = Sunday
     pub local_sunrise_time_of_day_seconds: u32, // Sunrise time in seconds since local midnight
     pub local_sunset_time_of_day_seconds: u32, // Sunset time in seconds since local midnight
     pub updating_firmware: bool,
@@ -41,10 +37,6 @@ static SETTINGS: Mutex<CriticalSectionRawMutex, SessionSettings> = Mutex::new(Se
     light_on: true,
     light_on_override: None,
     night_timer_active: false,
-    is_time_synced: false,
-    unix_epoch_offset_secs: 0,
-    local_time_of_day_offset_secs: 0,
-    local_weekday_number: 0,
     local_sunrise_time_of_day_seconds: 0,
     local_sunset_time_of_day_seconds: 0,
     updating_firmware: false,
