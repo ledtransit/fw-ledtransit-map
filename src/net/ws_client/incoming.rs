@@ -18,12 +18,13 @@ use crate::{
         app_settings::{self, persist::PersistSettings},
         transit_data::{self, TransitData},
     },
-    trace,
+    time, trace,
 };
 
 const AUTO_UPDATE_DELAY: Duration = Duration::from_secs(5 * 60);
 
-pub async fn handle_message(payload: Payload, payload_len: usize, received_in: Duration) {
+pub async fn handle_message(payload: Payload, payload_len: usize, received_at: Instant) {
+    let received_in = received_at.elapsed();
     // With remote control off, the server can't change the map's state. Only
     // checked for those messages: reading the settings copies the config
     let is_remote_control = matches!(
@@ -40,7 +41,8 @@ pub async fn handle_message(payload: Payload, payload_len: usize, received_in: D
     }
 
     match payload {
-        Payload::ServerInfo(server_info) => on_server_info(server_info).await,
+        Payload::ServerInfo(server_info) => on_server_info(server_info, received_at).await,
+        Payload::TimeSync(time_sync) => time::on_time_sync(&time_sync, received_at),
         Payload::Status(status) => on_status(status).await,
         Payload::Config(config) => on_config(config).await,
         Payload::Command(command) => on_command(command).await,
@@ -59,31 +61,22 @@ pub async fn handle_message(payload: Payload, payload_len: usize, received_in: D
     }
 }
 
-// World time, as offsets to the uptime
-async fn on_server_info(server_info: ServerInfo) {
+async fn on_server_info(server_info: ServerInfo, received_at: Instant) {
     profiling::once!(first_server_info_received);
-    let changed = app_settings::session::update_settings_changed(|set| {
-        let uptime_secs = Instant::now().as_secs() as u32;
-        set.unix_epoch_offset_secs = server_info.unix_timestamp.wrapping_sub(uptime_secs);
-        set.local_time_of_day_offset_secs = server_info
-            .local_time_of_day_seconds
-            .wrapping_sub(uptime_secs);
-        set.local_weekday_number = server_info.local_weekday_number;
+    time::on_server_info(&server_info, received_at);
+    app_settings::session::update_settings(|set| {
         set.local_sunrise_time_of_day_seconds = server_info.local_sunrise_time_of_day_seconds;
         set.local_sunset_time_of_day_seconds = server_info.local_sunset_time_of_day_seconds;
-        set.is_time_synced = true;
     })
     .await;
-    if changed {
-        info!(
-            "WS: Updated unix: {}, local secs: {}, weekday no: {}, sunrise secs: {}, sunset secs: {}",
-            server_info.unix_timestamp,
-            server_info.local_time_of_day_seconds,
-            server_info.local_weekday_number,
-            server_info.local_sunrise_time_of_day_seconds,
-            server_info.local_sunset_time_of_day_seconds,
-        );
-    }
+    info!(
+        "WS: Updated unix: {}, local secs: {}, weekday no: {}, sunrise secs: {}, sunset secs: {}",
+        server_info.unix_timestamp,
+        server_info.local_time_of_day_seconds,
+        server_info.local_weekday_number,
+        server_info.local_sunrise_time_of_day_seconds,
+        server_info.local_sunset_time_of_day_seconds,
+    );
     send_info();
     send_config();
     leds::set_status_led_from_session().await;

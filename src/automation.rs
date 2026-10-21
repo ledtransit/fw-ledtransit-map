@@ -17,20 +17,17 @@ pub async fn step() {
 
 async fn drive_day_night_timer_light_state() {
     // Runs every frame: only the values needed are read, not all settings copied
-    let (is_time_synced, light_on, light_on_override) =
-        app_settings::session::read_settings(|set| {
-            (set.is_time_synced, set.light_on, set.light_on_override)
-        })
-        .await;
-    if !is_time_synced {
+    let Some(local_time) = time::local_time() else {
         return;
-    }
+    };
+    let (light_on, light_on_override) =
+        app_settings::session::read_settings(|set| (set.light_on, set.light_on_override)).await;
 
     let timer_settings =
         &app_settings::persist::read_settings(|set| set.config.timer_settings).await;
     let is_timer_driving_on = is_day_night_timer_driving_light_on(
-        time::get_local_seconds_since_midnight().await,
-        time::get_local_weekday_number().await,
+        local_time.seconds_since_midnight,
+        local_time.weekday_number,
         timer_settings,
     );
 
@@ -71,26 +68,24 @@ async fn drive_day_night_timer_light_state() {
 
 async fn drive_sunlight_auto_brightness() {
     // Runs every frame: only the values needed are read, not all settings copied
-    let (is_time_synced, sunrise_seconds, sunset_seconds, auto_brightness_percent) =
+    let Some(local_time) = time::local_time() else {
+        return;
+    };
+    let (sunrise_seconds, sunset_seconds, auto_brightness_percent) =
         app_settings::session::read_settings(|set| {
             (
-                set.is_time_synced,
                 set.local_sunrise_time_of_day_seconds,
                 set.local_sunset_time_of_day_seconds,
                 set.auto_brightness_percent,
             )
         })
         .await;
-    if !is_time_synced {
-        return;
-    }
 
-    let local_time_of_day_seconds = time::get_local_seconds_since_midnight().await;
     let auto_brightness =
         &app_settings::persist::read_settings(|set| set.config.sunlight_auto_brightness).await;
     let brightness_percent = auto_brightness.enabled.then(|| {
         calc_brightness_percent_from_sunlight(
-            local_time_of_day_seconds,
+            local_time.seconds_since_midnight,
             sunrise_seconds,
             sunset_seconds,
             auto_brightness.day_brightness_percent as u8,

@@ -7,8 +7,9 @@ mod vehicles;
 use alloc::{vec, vec::Vec};
 use defmt::warn;
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, Instant, with_timeout};
+use embassy_time::{Duration, Instant, Timer};
 use rgb::RGB8;
 use smart_leds::colors::BLACK;
 
@@ -16,7 +17,7 @@ use crate::{
     net::ws_client::client_proto::{DeviceConfig, Line, LineConfig},
     profiling,
     store::{app_settings, transit_data},
-    trace,
+    time, trace,
     util::NonMax,
 };
 
@@ -27,10 +28,10 @@ static RENDER_NOW_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 #[derive(Clone, Default)]
 pub struct RendererState {
-    pub rendered_data_first_at_instant_ms: Option<u32>,
-    pub rendered_any_first_at_instant_ms: Option<u32>,
-    pub drawn_first_frame_at_instant_ms: Option<u32>,
-    pub config_last_changed_at_instant_ms: u32,
+    pub rendered_data_first_at_unix_ms: Option<u64>,
+    pub rendered_any_first_at_unix_ms: Option<u64>,
+    pub drawn_first_frame_at_unix_ms: Option<u64>,
+    pub config_last_changed_at_unix_ms: u64,
     pub disruptions_render_pending: bool,
 }
 
@@ -44,7 +45,7 @@ pub struct RendererOutput {
 pub struct RenderedVehicle {
     pub prev: PixelState,
     pub cur: PixelState,
-    pub last_updated_instant_ms: u32,
+    pub last_updated_unix_ms: u64,
     pub trip_id: NonMax<u16>, // Stable unique ID, server-provided
 }
 
@@ -53,7 +54,7 @@ impl RenderedVehicle {
         RenderedVehicle {
             prev: PixelState::NONE,
             cur: PixelState::NONE,
-            last_updated_instant_ms: 0,
+            last_updated_unix_ms: 0,
             trip_id: NonMax::new_unchecked(trip_id),
         }
     }
@@ -64,7 +65,7 @@ pub struct RenderedDisruption {
     pub pixels: Vec<u16>,
     pub prev_rgb: RGB8,
     pub cur_rgb: RGB8,
-    pub last_updated_instant_ms: u32,
+    pub last_updated_unix_ms: u64,
     pub disruption_id: NonMax<u16>, // Stable unique ID, server-provided
 }
 
@@ -74,7 +75,7 @@ impl RenderedDisruption {
             pixels: vec![],
             prev_rgb: BLACK,
             cur_rgb: BLACK,
-            last_updated_instant_ms: 0,
+            last_updated_unix_ms: 0,
             disruption_id: NonMax::new_unchecked(disruption_id),
         }
     }
@@ -115,6 +116,8 @@ pub fn render_now() {
 #[embassy_executor::task]
 async fn renderer_task() {
     let frame_duration_budget = Duration::from_millis(1000 / RENDERER_FPS as u64);
+    let frame_ms = frame_duration_budget.as_millis();
+    let mut frame_unix_ms = time::unix_millis();
     loop {
         RENDER_NOW_SIGNAL.reset();
         let begin_frame_time = Instant::now();
@@ -125,32 +128,33 @@ async fn renderer_task() {
 
             // Every frame: departure times have 1 s resolution, the painter
             // spaces the vehicles' changes out within the frame
-            vehicles::render_vehicles().await;
+            vehicles::render_vehicles(frame_unix_ms).await;
 
             // Disruptions change rarely and need potentially long path finding:
             // only when the transit data or the config changed
             if is_disruptions_render_pending().await {
-                disruptions::render_disruptions().await;
+                disruptions::render_disruptions(frame_unix_ms).await;
                 profiling::once!(first_disruptions_rendered);
             }
         }
 
-        // Until the next frame, or render_now()
         let frame_duration = Instant::now() - begin_frame_time;
-        if frame_duration < frame_duration_budget {
-            with_timeout(
-                frame_duration_budget - frame_duration,
-                RENDER_NOW_SIGNAL.wait(),
-            )
-            .await
-            .ok();
-        } else {
+        if frame_duration >= frame_duration_budget {
             warn!(
                 "Renderer: Frame processing time {}ms exceeded time budget {}ms",
                 frame_duration.as_millis(),
                 frame_duration_budget.as_millis()
             );
         }
+
+        // Frames start on the world clock's seconds, the same on every map.
+        // render_now() renders right away, for the data or config just changed
+        let next_frame_unix_ms = (time::unix_millis() / frame_ms + 1) * frame_ms;
+        let next_frame_at = time::instant_at_unix_millis(next_frame_unix_ms);
+        frame_unix_ms = match select(Timer::at(next_frame_at), RENDER_NOW_SIGNAL.wait()).await {
+            Either::First(()) => next_frame_unix_ms,
+            Either::Second(()) => time::unix_millis(),
+        };
     }
 }
 

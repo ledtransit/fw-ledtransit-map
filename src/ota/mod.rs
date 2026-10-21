@@ -170,7 +170,7 @@ async fn schedule_update(update: DeviceUpdate, delay: Duration) {
         update.firmware_version_patch,
         delay.as_secs()
     );
-    let now_unix = time::get_unix_timestamp_seconds().await;
+    let now_unix = time::unix_seconds();
     app_settings::session::update_settings(|set| {
         set.auto_update_scheduled_unix_timestamp = Some(now_unix + delay.as_secs() as u32);
     })

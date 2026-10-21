@@ -1,7 +1,6 @@
 // Disruptions: the pixels of the affected track section (or the direction at
 // a stop), and their color
 use alloc::{vec, vec::Vec};
-use embassy_time::Instant;
 use rgb::RGB8;
 use smart_leds::colors::BLACK;
 
@@ -23,13 +22,13 @@ const MAX_OPEN_NODES: usize = 128;
 
 type DisruptionPathFinder = PathFinder<MAX_OPEN_NODES, MAX_PATH_LEN>;
 
-pub async fn render_disruptions() {
+/// For the frame starting at the Unix time.
+pub async fn render_disruptions(frame_unix_ms: u64) {
     let mut store_guard = transit_data::get_mut().await;
     let Some(store) = store_guard.as_mut() else {
         return;
     };
 
-    let now_instant_ms = Instant::now().as_millis() as u32;
     let config = app_settings::persist::get_settings().await.config;
     let data = &store.data;
     let stop_locations = &data.stop_locations;
@@ -45,7 +44,7 @@ pub async fn render_disruptions() {
         let rendered = &mut rendered_disruptions[disruption_idx];
         rendered.prev_rgb = rendered.cur_rgb;
         rendered.cur_rgb = BLACK;
-        rendered.last_updated_instant_ms = now_instant_ms;
+        rendered.last_updated_unix_ms = frame_unix_ms;
         num_disruptions_available += 1;
 
         let Some((pixels, rgb)) = render_disruption(
@@ -63,7 +62,7 @@ pub async fn render_disruptions() {
             rendered.prev_rgb = prev_rendered.cur_rgb;
             rendered.cur_rgb = rgb;
             rendered.pixels = pixels;
-            rendered.last_updated_instant_ms = now_instant_ms;
+            rendered.last_updated_unix_ms = frame_unix_ms;
         } else {
             *rendered = prev_rendered;
         }

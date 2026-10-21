@@ -4,7 +4,7 @@ use embassy_time::Instant;
 use prost::Message;
 
 use super::client_proto::{
-    self, ClientMessage, DeviceErrors, DeviceInfo, DeviceStatus, DeviceTelemetry, Echo,
+    self, ClientMessage, DeviceErrors, DeviceInfo, DeviceStatus, DeviceTelemetry, Echo, TimeSync,
     client_message::Payload,
 };
 use crate::{
@@ -63,6 +63,8 @@ pub async fn telemetry(controller: &'static SharedWifiController) -> Vec<u8> {
     let transit_data_stats = transit_data::get_stats().await;
     let heap_stats = esp_alloc::HEAP.stats();
     let session_settings = app_settings::session::get_settings().await;
+    let time_sync_stats = time::sync_stats();
+    let followed_sync = time_sync_stats.followed.as_ref();
 
     encode(Payload::Telemetry(DeviceTelemetry {
         uptime_seconds: Instant::now().as_secs() as u32,
@@ -108,13 +110,34 @@ pub async fn telemetry(controller: &'static SharedWifiController) -> Vec<u8> {
         wifi_last_disconnect_reason: net_stats::wifi_last_disconnect_reason(),
         button_presses_total: stats::BUTTON_PRESSES.get() as u32,
         chip_temperature_celsius: chip_temperature::read_celsius(),
+        time_sync_round_trip_micros: followed_sync.map(|sync| sync.round_trip_micros),
+        time_sync_correction_micros: followed_sync.map(|sync| sync.correction_micros),
+        time_sync_measured_unix_timestamp: followed_sync.map(|sync| sync.measured_unix_timestamp),
+        time_sync_uncertainty_micros: followed_sync.map(|sync| sync.uncertainty_micros),
+        time_sync_slew_remaining_micros: followed_sync.map(|sync| sync.slew_remaining_micros),
+        time_sync_last_burst_round_trip_micros: time_sync_stats.last_burst_round_trip_micros,
+        time_sync_requests_total: time_sync_stats.requests,
+        time_sync_replies_total: time_sync_stats.replies,
+        time_sync_bursts_total: time_sync_stats.bursts,
+        time_sync_corrections_total: time_sync_stats.corrections,
+        time_sync_steps_total: time_sync_stats.steps,
+    }))
+}
+
+/// Stamped with the uptime now: encoded right before it's sent.
+pub fn time_sync() -> Vec<u8> {
+    time::SYNC_REQUESTS.inc();
+    encode(Payload::TimeSync(TimeSync {
+        client_send_micros_since_boot: Instant::now().as_micros(),
+        server_receive_unix_timestamp_micros: None,
+        server_send_unix_timestamp_micros: None,
     }))
 }
 
 /// The errors reported since the last time, which are cleared.
 pub async fn errors() -> Vec<u8> {
     let errors = trace::get_errors();
-    let unix_timestamp = time::get_unix_timestamp_seconds().await;
+    let unix_timestamp = time::unix_seconds();
     let message = encode(Payload::Errors(DeviceErrors {
         errors: errors
             .into_iter()

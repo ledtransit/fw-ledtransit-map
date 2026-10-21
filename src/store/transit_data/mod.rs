@@ -8,7 +8,7 @@ use embassy_sync::{
     mutex::{Mutex, MutexGuard},
     signal::Signal,
 };
-use embassy_time::{Duration, Instant};
+use embassy_time::Duration;
 
 use crate::{
     display::renderer::{self, RenderedDisruption, RenderedVehicle, RendererOutput, RendererState},
@@ -56,7 +56,7 @@ pub struct TransitDataStats {
 }
 
 pub async fn on_data(transit_data: TransitData, size_bytes: usize, received_in: Duration) {
-    let now_timestamp = time::get_unix_timestamp_seconds().await;
+    let now_timestamp = time::unix_seconds();
     let mut store = TRANSIT_DATA_STORE.lock().await;
     let prev = store.as_ref();
     let was_stale = prev.is_some_and(|s| s.state.is_data_stale);
@@ -66,7 +66,7 @@ pub async fn on_data(transit_data: TransitData, size_bytes: usize, received_in: 
         disruptions: carry_over_disruptions(&transit_data, prev),
     };
     let rendered_state = RendererState {
-        rendered_data_first_at_instant_ms: None,
+        rendered_data_first_at_unix_ms: None,
         disruptions_render_pending: true,
         ..prev
             .map(|s| s.state.rendered_state.clone())
@@ -212,7 +212,7 @@ pub async fn update_line_configs() {
 pub async fn clear() {
     let mut store = TRANSIT_DATA_STORE.lock().await;
     if let Some(store) = store.as_mut() {
-        store.state.rendered_state.rendered_data_first_at_instant_ms = None;
+        store.state.rendered_state.rendered_data_first_at_unix_ms = None;
         store.data = TransitData::default();
     }
 }
@@ -225,7 +225,7 @@ pub async fn on_data_stale() {
             STALE_CHANGED.signal(());
         }
         store.state.is_data_stale = true;
-        store.state.rendered_state.drawn_first_frame_at_instant_ms = None;
+        store.state.rendered_state.drawn_first_frame_at_unix_ms = None;
         store.state.renderer_out = RendererOutput::default();
     }
 }
@@ -269,8 +269,7 @@ pub async fn on_config_updated() {
     if let Some(store) = store.as_mut() {
         store.state.painter_telemetry_pending = true;
         store.state.rendered_state.disruptions_render_pending = true;
-        store.state.rendered_state.config_last_changed_at_instant_ms =
-            Instant::now().as_millis() as u32;
+        store.state.rendered_state.config_last_changed_at_unix_ms = time::unix_millis();
     }
     renderer::render_now();
 }
