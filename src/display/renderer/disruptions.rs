@@ -4,7 +4,7 @@ use alloc::{vec, vec::Vec};
 use rgb::RGB8;
 use smart_leds::colors::BLACK;
 
-use super::{color::finish_color, is_line_enabled, line_config, stop_location};
+use super::{color::full_color, is_line_enabled, line_config, stop_location};
 use crate::{
     config::CONFIG,
     display::path_find::PathFinder,
@@ -112,11 +112,8 @@ fn render_disruption(
     } else {
         config.disruption_secondary_color_rgb8
     });
-    let rgb = finish_color(
-        color,
-        config.color_temperature_shift,
-        config.disruption_brightness_percent as f32 / 100.0,
-    );
+    // At full intensity: the painter applies the disruption brightness
+    let rgb = full_color(color, config.color_temperature_shift);
 
     let from_stop_id = disruption.from_stop_id;
     if !is_shown_by_filter(

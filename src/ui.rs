@@ -35,7 +35,10 @@ async fn on_short_press(button: Button) {
     match button {
         Button::Up => {
             info!("UI: Increasing brightness");
-            change_brightness(|percent| (percent + BRIGHTNESS_STEP_PERCENT).min(100)).await;
+            change_brightness(|percent| {
+                ((percent / BRIGHTNESS_STEP_PERCENT + 1) * BRIGHTNESS_STEP_PERCENT).min(100)
+            })
+            .await;
         }
         Button::Middle => {
             info!("UI: Toggling LEDs on/off");
@@ -44,9 +47,7 @@ async fn on_short_press(button: Button) {
         Button::Down => {
             info!("UI: Decreasing brightness");
             change_brightness(|percent| {
-                percent
-                    .saturating_sub(BRIGHTNESS_STEP_PERCENT)
-                    .max(BRIGHTNESS_STEP_PERCENT)
+                percent.saturating_sub(1) / BRIGHTNESS_STEP_PERCENT * BRIGHTNESS_STEP_PERCENT
             })
             .await;
         }

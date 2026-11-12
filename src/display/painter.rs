@@ -10,7 +10,10 @@ use crate::{
     config::CONFIG,
     display::{
         leds::{self, LedPixels},
-        renderer::{RENDERER_FPS, RenderedDisruption, RenderedVehicle},
+        renderer::{
+            RENDERER_FPS, RenderedDisruption, RenderedVehicle,
+            color::{apply_brightness, min_lit_value},
+        },
     },
     net::ws_client::{
         self,
@@ -76,6 +79,7 @@ struct DrawConfig {
     disruptions_enabled: bool,
     disruption_interval: i32,
     disruption_mode: i32,
+    disruption_brightness_percent: u8,
 }
 
 async fn draw_frame() {
@@ -131,8 +135,11 @@ async fn draw_frame() {
         disruptions_enabled: set.config.disruptions_enabled,
         disruption_interval: set.config.disruption_interval,
         disruption_mode: set.config.disruption_mode,
+        disruption_brightness_percent: set.config.disruption_brightness_percent.min(100) as u8,
     })
     .await;
+    // At the pixels' brightness level as written out now (see apply_brightness)
+    let min_lit_value = min_lit_value(leds::get_current_brightness_level().await);
     let animation_speed_unit = config.animation_speed_percent.min(200) as f32 / 200.0;
     let render_mode =
         RenderMode::try_from(config.render_mode).unwrap_or(RenderMode::SnapClosestTransition);
@@ -161,6 +168,7 @@ async fn draw_frame() {
             now_unix_ms,
             transition_duration_ms,
             animation_speed_unit,
+            min_lit_value,
         );
     }
     draw_vehicles(
@@ -170,6 +178,7 @@ async fn draw_frame() {
         transition_duration_ms,
         config_changed_this_render_frame,
         rendered_data_first_at_unix_ms,
+        min_lit_value,
     );
 
     // Count non-black pixels
@@ -203,6 +212,7 @@ fn draw_disruptions(
     now_unix_ms: u64,
     transition_duration_ms: u64,
     animation_speed_unit: f32,
+    min_lit_value: u8,
 ) {
     let disruption_count = disruptions.len() as u64;
     let draw_interval_ms = RENDERER_FRAME_TIME_MS
@@ -226,9 +236,11 @@ fn draw_disruptions(
             disruption_count as u32,
         );
         let start_unix_ms = disruption.last_updated_unix_ms + slot as u64 * draw_interval_ms;
+        let brightness =
+            |rgb| apply_brightness(rgb, config.disruption_brightness_percent, min_lit_value);
         let rgb = transition_color(
-            disruption.prev_rgb,
-            disruption.cur_rgb,
+            brightness(disruption.prev_rgb),
+            brightness(disruption.cur_rgb),
             now_unix_ms,
             start_unix_ms,
             transition_duration_ms,
@@ -290,6 +302,7 @@ fn draw_vehicles(
     transition_duration_ms: u64,
     config_changed_this_render_frame: bool,
     rendered_data_first_at_unix_ms: u64,
+    min_lit_value: u8,
 ) {
     let vehicle_count = vehicles.len() as u64;
     let draw_interval_ms = RENDERER_FRAME_TIME_MS
@@ -320,8 +333,15 @@ fn draw_vehicles(
             write_pixel_z(pixel_buf, idx as usize, color, &mut z_buffer, z_value)
         };
 
-        let prev = vehicle.prev.to_option();
-        let cur = vehicle.cur.to_option();
+        // At their brightness, for the pixels' brightness level now
+        let prev = vehicle.prev.to_option().map(|mut prev| {
+            prev.rgb = apply_brightness(prev.rgb, prev.brightness_percent, min_lit_value);
+            prev
+        });
+        let cur = vehicle.cur.to_option().map(|mut cur| {
+            cur.rgb = apply_brightness(cur.rgb, cur.brightness_percent, min_lit_value);
+            cur
+        });
         if now_unix_ms < start_unix_ms {
             if let Some(prev) = prev {
                 draw(prev.idx, prev.rgb);

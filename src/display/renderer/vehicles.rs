@@ -7,7 +7,7 @@ use smart_leds::hsv::Hsv;
 
 use super::{
     PixelState,
-    color::{finish_color, hsv_lerp, rgb2hsv},
+    color::{full_color, hsv_lerp, rgb2hsv},
     is_line_enabled, line_config, stop_location,
 };
 use crate::{
@@ -424,11 +424,7 @@ fn render_vehicle(
     };
 
     let color = vehicle_color(style, line_color, line_id, segment, delayed_seconds);
-    let rgb = finish_color(
-        color,
-        config.color_temperature_shift,
-        line_brightness_percent as f32 / 100.0,
-    );
+    let rgb = full_color(color, config.color_temperature_shift);
 
     let Some(idx) = NonMax::new(pixel) else {
         trace::err!(
@@ -444,7 +440,12 @@ fn render_vehicle(
         );
         return None;
     };
-    Some((PixelState { rgb, idx }, delayed_seconds.is_some()))
+    let pixel_state = PixelState {
+        rgb,
+        brightness_percent: line_brightness_percent as u8,
+        idx,
+    };
+    Some((pixel_state, delayed_seconds.is_some()))
 }
 
 // Waiting at a stop, or about to (when the wait time isn't known)
