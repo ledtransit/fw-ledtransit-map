@@ -68,11 +68,50 @@ pub fn hsv_lerp(from: Hsv, to: Hsv, ratio: f32) -> RGB8 {
     })
 }
 
+/// The color in HSV of the light the LEDs give off for it (after gamma
+/// correction), to interpolate with `led_hsv_lerp`. Its intensity is equalized
+/// first (as in `full_color`), so the weaker channels keep their precision.
+pub fn led_hsv(color: RGB8) -> Hsv {
+    let color = equalize_color_intensity(color);
+    rgb2hsv(RGB8 {
+        r: led_gamma(color.r),
+        g: led_gamma(color.g),
+        b: led_gamma(color.b),
+    })
+}
+
+/// The color at the ratio (0 to 1) between the two `led_hsv` colors, spread
+/// evenly in the light the LEDs give off. Interpolated before gamma
+/// correction instead, the weaker channel is crushed: halfway from green
+/// towards yellow would still show as pure green.
+pub fn led_hsv_lerp(from: Hsv, to: Hsv, ratio: f32) -> RGB8 {
+    let light = hsv_lerp(from, to, ratio);
+    RGB8 {
+        r: inverse_led_gamma(light.r),
+        g: inverse_led_gamma(light.g),
+        b: inverse_led_gamma(light.b),
+    }
+}
+
 // The channel's value after the gamma correction the LEDs are written with
 fn led_gamma(value: u8) -> u8 {
     gamma(iter::once(RGB8::new(value, value, value)))
         .next()
         .map_or(0, |color| color.r)
+}
+
+// The lowest channel value whose gamma corrected value is at least the value
+fn inverse_led_gamma(corrected: u8) -> u8 {
+    let (mut low, mut high) = (0u16, u8::MAX as u16);
+    while low < high {
+        let mid = (low + high) / 2;
+        if led_gamma(mid as u8) < corrected {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    low as u8
 }
 
 pub fn rgb2hsv(rgb: RGB8) -> Hsv {
@@ -90,21 +129,23 @@ pub fn rgb2hsv(rgb: RGB8) -> Hsv {
     } else {
         ((delta * 255) / max) as u8
     };
+    // In half steps: hsv2rgb's six sectors are 42.5 hues each (red at 0,
+    // green at 85, blue at 170)
     let hue = if delta == 0 {
         0
     } else {
         let (sector, offset) = if max == r {
-            (0, (g - b) * 43 / delta)
+            (0, (g - b) * 85 / delta)
         } else if max == g {
-            (2, (b - r) * 43 / delta)
+            (2, (b - r) * 85 / delta)
         } else {
-            (4, (r - g) * 43 / delta)
+            (4, (r - g) * 85 / delta)
         };
-        let mut h = sector * 43 + offset;
+        let mut h = sector * 85 + offset;
         if h < 0 {
-            h += 256;
+            h += 510;
         }
-        (h & 0xFF) as u8
+        (h / 2).min(u8::MAX as i16) as u8
     };
 
     Hsv { hue, sat, val }

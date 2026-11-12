@@ -7,7 +7,7 @@ use smart_leds::hsv::Hsv;
 
 use super::{
     PixelState,
-    color::{full_color, hsv_lerp, rgb2hsv},
+    color::{full_color, led_hsv, led_hsv_lerp},
     is_line_enabled, line_config, stop_location,
 };
 use crate::{
@@ -28,6 +28,9 @@ const MAX_OPEN_NODES: usize = 32;
 // Without a known wait time, stationary vehicles show for this long before
 // the end of the segment
 const MIN_MISSING_WAIT_TIME_SECONDS: u32 = 30;
+// How far the delay heatmap's colors move ahead for small delays (0: linear,
+// 1: the most that keeps the ratio within 0 to 1)
+const DELAY_EASING: f32 = 0.5;
 
 type Coord = (i32, i32); // Latitude, longitude * 10^7
 
@@ -48,6 +51,7 @@ struct VehicleStyle<'a> {
     primary_color: RGB8,
     tertiary_color: RGB8,
     disruption_color: RGB8,
+    // In the light the LEDs give off (see led_hsv)
     primary_hsv: Hsv,
     secondary_hsv: Hsv,
     vehicle_filter_meters_sq: i64,
@@ -68,8 +72,8 @@ pub async fn render_vehicles(frame_unix_ms: u64) {
         primary_color: rgb8_from_packed(config.primary_color_rgb8),
         tertiary_color: rgb8_from_packed(config.tertiary_color_rgb8),
         disruption_color: rgb8_from_packed(config.disruption_primary_color_rgb8),
-        primary_hsv: rgb2hsv(rgb8_from_packed(config.primary_color_rgb8)),
-        secondary_hsv: rgb2hsv(rgb8_from_packed(config.secondary_color_rgb8)),
+        primary_hsv: led_hsv(rgb8_from_packed(config.primary_color_rgb8)),
+        secondary_hsv: led_hsv(rgb8_from_packed(config.secondary_color_rgb8)),
         vehicle_filter_meters_sq: (config.vehicle_distance_threshold_meters as i64).pow(2),
         lines_count: store.data.lines.len(),
     };
@@ -507,7 +511,7 @@ fn vehicle_color(
         Ok(ColorMode::RangeSpacedApart) => {
             // The line's place within the primary to secondary range
             let ratio = (line_id as f32) / style.lines_count.max(1) as f32;
-            hsv_lerp(style.primary_hsv, style.secondary_hsv, ratio)
+            led_hsv_lerp(style.primary_hsv, style.secondary_hsv, ratio)
         }
         Ok(ColorMode::DelayHeatmap) => {
             let Some(delay_secs) = delayed_seconds.as_option() else {
@@ -522,7 +526,10 @@ fn vehicle_color(
             let delay_secs = (delay_secs as i32).clamp(min_delay_secs, max_delay_secs);
             let ratio = (delay_secs - min_delay_secs) as f32
                 / (max_delay_secs - min_delay_secs).max(1) as f32;
-            hsv_lerp(style.primary_hsv, style.secondary_hsv, ratio)
+            // Eased out (about ratio^0.7): small delays apart from each other
+            // matter more than large ones
+            let ratio = ratio + DELAY_EASING * ratio * (1.0 - ratio);
+            led_hsv_lerp(style.primary_hsv, style.secondary_hsv, ratio)
         }
         Ok(ColorMode::SpeedHeatmap) => {
             let average_speed_kmph = i32::from(segment.average_speed_kmph);
@@ -532,7 +539,7 @@ fn vehicle_color(
             let ratio = 1.0
                 - (speed_kmph - min_speed_kmph) as f32
                     / (max_speed_kmph - min_speed_kmph).max(1) as f32;
-            hsv_lerp(style.primary_hsv, style.secondary_hsv, ratio)
+            led_hsv_lerp(style.primary_hsv, style.secondary_hsv, ratio)
         }
     }
 }
