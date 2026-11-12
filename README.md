@@ -69,12 +69,21 @@ For IDE integration, you may also want to install the [rust-analyzer](https://gi
 
 ## Build the firmware
 
-Build the firmware for a specific product ([see Supported Products](#supported-products)). If no product is specified, the command attempts to auto-detect a connected device and builds for that product.
+Build the firmware for a specific product ([see Supported Products](#supported-products)). If no product is specified, the command builds for the product saved with `cargo xtask select`.
 
 ```sh
 cargo xtask build # <product>
 # Example: cargo xtask build bln1-2512-1
 ```
+
+To not repeat the product on every command, save it once (`build` and `run` then use it when none is given):
+
+```sh
+cargo xtask select bln1-2512-1
+cargo xtask select --clear # Use the connected device's product again
+```
+
+In VS Code, the common commands are also available as tasks (*Terminal > Run Task…*, see [.vscode/tasks.json](.vscode/tasks.json)): pick the product with *xtask: Select Product*, then build with *xtask: Build* (the default build task, ⇧⌘B / Ctrl+Shift+B).
 
 Always build through `cargo xtask`: it selects the product and its settings. A plain `cargo build` only builds a virtual product (for tooling such as rust-analyzer), which doesn't run on a map, and warns about it.
 
@@ -111,7 +120,7 @@ A standard 500 mA USB 2.0 port is sufficient to power the device for small brigh
 
 ## Flash the firmware
 
-Build, flash and monitor the firmware with the `run` command. If no product is specified, the command auto-detects the connected device and flashes the corresponding firmware. The device waits in its bootloader from detection until flashing, so it boots only once, with the new firmware (or its old one again if the build fails).
+Build, flash and monitor the firmware with the `run` command. If no product is specified, the command uses the selected product, else auto-detects the connected device and flashes the corresponding firmware. A specified or selected product must match the connected device. The device waits in its bootloader from detection until flashing, so it boots only once, with the new firmware (or its old one again if the build fails).
 
 ```sh
 cargo xtask run # <product>
@@ -150,6 +159,7 @@ All tasks run through `cargo xtask` ([xtask/](xtask/)):
 | Command | Description |
 | --- | --- |
 | `cargo xtask doctor` | Check the development environment is set up correctly |
+| `cargo xtask select [product] [--clear]` | Save the product that `build` and `run` use when none is given (without arguments: show it). `--clear` makes `run` use the connected device's again |
 | `cargo xtask build [product]` | Build the development firmware |
 | `cargo xtask run [product]` | Build, flash and monitor the development firmware |
 | `cargo xtask monitor` | Monitor the device's log output. Decoding only works if the firmware on the device is exactly the one built locally (`target/riscv32imc-unknown-none-elf/release/fw-ledtransit-map`), so build and flash it once with `cargo xtask run` first |

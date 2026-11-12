@@ -9,6 +9,11 @@ pub enum Cli {
         about = "Check the development environment is set up correctly"
     )]
     Doctor,
+    #[clap(
+        name = "select",
+        about = "Select the product to build for when none is given (or show the selection)"
+    )]
+    Select(SelectArgs),
     #[clap(name = "build", about = "Build the development firmware for a product")]
     Build(BuildArgs),
     #[clap(name = "run", about = "Run the development firmware on the device")]
@@ -37,7 +42,7 @@ pub enum Cli {
 pub struct BuildArgs {
     #[arg(
         value_enum,
-        help = "Hardware product to build for in format <PROD>-<MAJOR>-<MINOR> [default: connected device]"
+        help = "Hardware product to build for in format <PROD>-<MAJOR>-<MINOR> [default: selected product, else connected device]"
     )]
     pub product_id: Option<ProductId>,
     #[arg(long, value_enum, default_value_t = LogLevel::Info, help = "Set the logging level")]
@@ -77,6 +82,21 @@ pub struct BuildArgs {
         help = "Enable SSL override for API access [default: built-in]"
     )]
     pub ssl_enable: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+pub struct SelectArgs {
+    #[arg(
+        value_enum,
+        help = "Hardware product to select in format <PROD>-<MAJOR>-<MINOR>"
+    )]
+    pub product_id: Option<ProductId>,
+    #[arg(
+        long = "clear",
+        conflicts_with = "product_id",
+        help = "Clear the selection, to use the connected device's product again"
+    )]
+    pub clear: bool,
 }
 
 #[derive(Debug, Args)]

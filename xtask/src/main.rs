@@ -12,7 +12,7 @@ mod tools;
 use anyhow::Result;
 use clap::Parser;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, SelectArgs};
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -21,6 +21,7 @@ fn main() -> Result<()> {
 
     match Cli::parse() {
         Cli::Doctor => doctor::run(),
+        Cli::Select(args) => select(args),
         Cli::Build(args) => firmware::build(args, false),
         Cli::Run(args) => firmware::build(args, true),
         Cli::Monitor => firmware::monitor(),
@@ -30,5 +31,19 @@ fn main() -> Result<()> {
         Cli::ProvServer => assets::build_prov_server(),
         Cli::Release(args) => release::build(args),
         Cli::Factory(args) => firmware::install_factory(args),
+    }
+}
+
+fn select(args: SelectArgs) -> Result<()> {
+    match (args.product_id, args.clear) {
+        (Some(product_id), _) => product::select(Some(product_id)),
+        (None, true) => product::select(None),
+        (None, false) => {
+            match product::selected()? {
+                Some(product_id) => log::info!("Selected product: {}", product_id.as_str()),
+                None => log::info!("No product selected, using the connected device's"),
+            }
+            Ok(())
+        }
     }
 }
