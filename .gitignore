@@ -5,3 +5,4 @@ target
 **/mutants.out*/
 .env*
 *.p8
+.selected-product

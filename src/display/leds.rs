@@ -254,6 +254,11 @@ impl DerefMut for PixelBufferGuard<'_> {
     }
 }
 
+// The pixels' brightness level written out with at 0% and at 100%: lower,
+// too few output levels are left for colors to show true
+const MIN_BRIGHTNESS_LEVEL: u8 = 6;
+const MAX_BRIGHTNESS_LEVEL: u8 = 100;
+
 /// The brightness from the sunlight automation, else the configured one.
 pub async fn get_current_brightness_percent() -> u8 {
     let auto_brightness_percent =
@@ -270,15 +275,39 @@ pub async fn get_current_estimate_milliamps() -> u32 {
     sums.estimate_milliamps()
 }
 
+/// The pixels' brightness level written out with at the current brightness
+/// (with the light on).
+pub async fn get_current_brightness_level() -> u8 {
+    brightness_level(get_current_brightness_percent().await)
+}
+
+// The brightness percent's level: 0 to 100% spans the minimum to the maximum
+fn brightness_level(brightness_percent: u8) -> u8 {
+    let span = u16::from(MAX_BRIGHTNESS_LEVEL - MIN_BRIGHTNESS_LEVEL);
+    let percent = u16::from(brightness_percent.min(100));
+    MIN_BRIGHTNESS_LEVEL + ((percent * span + 50) / 100) as u8
+}
+
 // The brightnesses written out with, of the status LED and of the pixels:
 // the status LED brighter, the pixels off with the light off
 async fn output_brightnesses() -> (u8, u8) {
     let is_light_on = app_settings::session::read_settings(|set| set.light_on).await;
-    let brightness_percent = get_current_brightness_percent().await;
+    let brightness_level = get_current_brightness_level().await;
     (
-        brightness_percent.saturating_add(100),
-        if is_light_on { brightness_percent } else { 0 },
+        brightness_level.saturating_add(100),
+        if is_light_on { brightness_level } else { 0 },
     )
+}
+
+/// A channel's value as written out to the pixels at the brightness level:
+/// gamma corrected, then scaled.
+pub fn output_channel_value(value: u8, brightness_level: u8) -> u8 {
+    brightness(
+        gamma(core::iter::once(RGB8::new(value, value, value))),
+        brightness_level,
+    )
+    .next()
+    .map_or(0, |color| color.r)
 }
 
 // Each channel's value as written out: gamma corrected, at the brightness.
@@ -292,10 +321,7 @@ impl ChannelMap {
     fn new(brightness_level: u8) -> Self {
         let mut values = [0; 256];
         for (value, out) in (0..=u8::MAX).zip(values.iter_mut()) {
-            let color = RGB8::new(value, value, value);
-            *out = brightness(gamma(core::iter::once(color)), brightness_level)
-                .next()
-                .map_or(0, |color| color.r);
+            *out = output_channel_value(value, brightness_level);
         }
         Self {
             brightness: brightness_level,

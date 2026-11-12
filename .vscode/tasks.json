@@ -1,0 +1,93 @@
+{
+  // Common `cargo xtask` commands (see the README's Commands section).
+  // Build and Run use the product saved with "xtask: Select Product", else
+  // the connected device's
+  //
+  // The tasks run cargo directly ("process"), not through a shell: on macOS a
+  // task's shell is a login shell, whose /etc/zprofile (path_helper) moves the
+  // system paths first, and with them Apple's clang, which can't build for
+  // RISC-V
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "xtask: Doctor",
+      "detail": "Check the development environment is set up correctly",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "doctor"],
+      "problemMatcher": []
+    },
+    {
+      "label": "xtask: Select Product",
+      "detail": "Save the product that Build and Run use",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "select", "${input:product}"],
+      "problemMatcher": []
+    },
+    {
+      "label": "xtask: Detect",
+      "detail": "Detect which product is connected, and its firmware version",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "detect"],
+      "problemMatcher": []
+    },
+    {
+      "label": "xtask: Build",
+      "detail": "Build the development firmware for the selected product",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "build"],
+      "problemMatcher": ["$rustc"],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "xtask: Run",
+      "detail": "Build, flash and monitor the development firmware",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "run"],
+      "problemMatcher": ["$rustc"],
+      "presentation": { "panel": "dedicated", "focus": true }
+    },
+    {
+      "label": "xtask: Monitor",
+      "detail": "Monitor the device's log output",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "monitor"],
+      "problemMatcher": [],
+      "presentation": { "panel": "dedicated", "focus": true }
+    },
+    {
+      "label": "xtask: Clippy",
+      "detail": "Run the clippy linter",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "clippy"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "xtask: Clippy Fix",
+      "detail": "Run the clippy linter and apply its fixes (requires a clean git working tree)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "clippy", "--fix"],
+      "problemMatcher": ["$rustc"]
+    }
+  ],
+  "inputs": [
+    {
+      // Keep in sync with xtask/src/product.rs
+      "id": "product",
+      "type": "pickString",
+      "description": "Product to build for",
+      "options": [
+        { "label": "bln1-2512-1", "value": "bln1-2512-1" },
+        { "label": "bln2-2512-1", "value": "bln2-2512-1" },
+        { "label": "Connected device (auto-detect)", "value": "--clear" }
+      ]
+    }
+  ]
+}

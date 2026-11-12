@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::{
     cli::{BuildArgs, ClippyArgs, FactoryArgs},
     device::{self, ConnectedDevice},
-    product::ProductId,
+    product::{self, ProductId},
     tools,
 };
 
@@ -24,7 +24,16 @@ const SETTINGS_SIZE: u32 = 0x1000;
 
 /// Builds the development firmware, and with `run` also flashes it and
 /// monitors its log.
-pub fn build(args: BuildArgs, run: bool) -> Result<()> {
+pub fn build(mut args: BuildArgs, run: bool) -> Result<()> {
+    if args.product_id.is_none() {
+        args.product_id = product::selected()?;
+        if let Some(product_id) = &args.product_id {
+            log::info!(
+                "No product given, using the selected product: {} (change with `cargo xtask select`)",
+                product_id.as_str()
+            );
+        }
+    }
     log::info!(
         "Building firmware for product: {:?} (log={:?})",
         args.product_id,

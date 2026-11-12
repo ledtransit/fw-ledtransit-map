@@ -1,6 +1,6 @@
 // Renders the transit data into what each vehicle and disruption shows on
 // the map (pixels and colors); the painter draws it
-mod color;
+pub mod color;
 mod disruptions;
 mod vehicles;
 
@@ -83,25 +83,30 @@ impl RenderedDisruption {
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct PixelState {
-    pub rgb: RGB8,
+    pub rgb: RGB8, // At full intensity (see color::full_color)
+    pub brightness_percent: u8,
     pub idx: NonMax<u16>,
 }
 
 pub struct PixelStateSome {
     pub rgb: RGB8,
+    pub brightness_percent: u8,
     pub idx: u16,
 }
 
 impl PixelState {
     pub const NONE: Self = PixelState {
         rgb: BLACK,
+        brightness_percent: 0,
         idx: NonMax::NONE,
     };
 
     pub fn to_option(self) -> Option<PixelStateSome> {
-        self.idx
-            .as_option()
-            .map(|idx| PixelStateSome { rgb: self.rgb, idx })
+        self.idx.as_option().map(|idx| PixelStateSome {
+            rgb: self.rgb,
+            brightness_percent: self.brightness_percent,
+            idx,
+        })
     }
 }
 
