@@ -2,9 +2,9 @@
 pub const PRODUCT: Product = Product::Bln2_2512_1;
 pub const DATA_FEED: &str = "berlin_s_u";
 pub const MIN_DELAY_MINUTES: u32 = 0;
-pub const MAX_DELAY_MINUTES: u32 = 10;
-pub const MIN_SPEED_KMPH: u32 = 0;
-pub const MAX_SPEED_KMPH: u32 = 100;
+pub const MAX_DELAY_MINUTES: u32 = 6;
+pub const MIN_SPEED_KMPH: u32 = 25;
+pub const MAX_SPEED_KMPH: u32 = 60;
 pub const COS_LAT_Q15: i16 = 19938;
 pub const DIMENSIONS: (f32, f32) = (420.0, 297.0);
 pub const PIXEL_COUNT: usize = 742;
